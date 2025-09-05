@@ -5,7 +5,6 @@
 #include <chrono>
 
 #include "resource/language/I18n.hpp"
-#include "util/Window.hpp"
 
 MinecraftClient::MinecraftClient()
     : gameVersion("1.21.8"),
@@ -15,6 +14,9 @@ MinecraftClient::MinecraftClient()
 void MinecraftClient::run() {
     window = std::make_unique<Window>(this);
     window->create(854, 480);
+
+    vulkan = std::make_unique<VulkanContext>(window.get());
+    vulkan->init();
 
     while (!window->shouldClose()) {
         window->pollEvents();

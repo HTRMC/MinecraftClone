@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "util/Window.hpp"
+#include "vulkan/VulkanContext.hpp"
 
 class MinecraftClient {
 public:
@@ -22,4 +23,5 @@ private:
     int fps;
 
     std::unique_ptr<Window> window;
+    std::unique_ptr<VulkanContext> vulkan;
 };

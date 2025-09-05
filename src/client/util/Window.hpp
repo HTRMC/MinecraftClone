@@ -23,4 +23,5 @@ private:
     int width;
     int height;
     std::vector<std::vector<uint8_t>> iconBuffers;
+    VkSurfaceKHR createSurface(VkInstance instance);
 };

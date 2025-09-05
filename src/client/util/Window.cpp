@@ -82,6 +82,14 @@ void Window::loadIcons() {
     glfwSetWindowIcon(glfwWindow, icons.size(), icons.data());
 }
 
+VkSurfaceKHR Window::createSurface(VkInstance instance) {
+    VkSurfaceKHR surface;
+    if (glfwCreateWindowSurface(instance, glfwWindow, nullptr, &surface) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create window surface!");
+    }
+    return surface;
+}
+
 void Window::updateTitle() {
     std::string title = client->getWindowTitle();
     glfwSetWindowTitle(glfwWindow, title.c_str());
