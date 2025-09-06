@@ -25,7 +25,7 @@ void MinecraftClient::run() {
     renderer->init();
 
     // Initialize camera at a good starting position
-    camera = std::make_unique<Camera>(glm::vec3(2.0f, 2.0f, 2.0f));
+    camera = std::make_unique<Camera>(glm::vec3(0.0f, 0.0f, 0.0f));
     renderer->setCamera(camera.get());
 
     auto lastTime = std::chrono::high_resolution_clock::now();
