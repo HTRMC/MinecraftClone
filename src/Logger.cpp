@@ -32,6 +32,12 @@ static const char* colorForLevel(LogLevel level) {
 }
 
 void Logger::log(LogLevel level, const std::string& subsystem, const std::string& message) {
+#ifdef NDEBUG
+    if (level == LogLevel::DEBUG) {
+        return;
+    }
+#endif
+
     if (level == LogLevel::DEBUG && !shouldLogMessage(message)) {
         return;
     }
