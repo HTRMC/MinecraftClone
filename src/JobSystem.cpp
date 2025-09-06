@@ -55,6 +55,68 @@ void JobSystem::submitChunkGeneration(ChunkData* chunk) {
     });
 }
 
+std::future<void> JobSystem::submitChunkGenerationParallel(ChunkData* chunk) {
+    auto promise = std::make_shared<std::promise<void>>();
+    auto future = promise->get_future();
+    
+    auto completionCounter = std::make_shared<std::atomic<int>>(3);
+    
+    auto onTaskComplete = [promise, completionCounter, chunk]() {
+        if (completionCounter->fetch_sub(1) == 1) {
+            chunk->isDirty = false;
+            promise->set_value();
+        }
+    };
+    
+    submit(JobPriority::HIGH, [this, chunk, onTaskComplete]() {
+        generateChunkFaces(chunk);
+        onTaskComplete();
+    });
+    
+    submit(JobPriority::HIGH, [this, chunk, onTaskComplete]() {
+        generateChunkModels(chunk);
+        onTaskComplete();
+    });
+    
+    submit(JobPriority::HIGH, [this, chunk, onTaskComplete]() {
+        generateChunkLighting(chunk);
+        onTaskComplete();
+    });
+    
+    return future;
+}
+
+void JobSystem::submitChunkOperationsParallel(ChunkData* chunk, std::function<void()> onComplete) {
+    if (!chunk) {
+        if (onComplete) onComplete();
+        return;
+    }
+    
+    auto completionCounter = std::make_shared<std::atomic<int>>(3);
+    
+    auto onTaskComplete = [completionCounter, chunk, onComplete]() {
+        if (completionCounter->fetch_sub(1) == 1) {
+            chunk->isDirty = false;
+            if (onComplete) onComplete();
+        }
+    };
+    
+    submit(JobPriority::HIGH, [this, chunk, onTaskComplete]() {
+        generateChunkFaces(chunk);
+        onTaskComplete();
+    });
+    
+    submit(JobPriority::HIGH, [this, chunk, onTaskComplete]() {
+        generateChunkModels(chunk);
+        onTaskComplete();
+    });
+    
+    submit(JobPriority::HIGH, [this, chunk, onTaskComplete]() {
+        generateChunkLighting(chunk);
+        onTaskComplete();
+    });
+}
+
 void JobSystem::submitChunkMeshUpdate(ChunkData* chunk) {
     submit(JobPriority::DEFAULT, [this, chunk]() {
         generateChunkFaces(chunk);
@@ -113,8 +175,13 @@ void JobSystem::workerLoop() {
 }
 
 void JobSystem::generateChunkFaces(ChunkData* chunk) {
+    std::lock_guard<std::mutex> lock(chunkMutex);
+    
     chunk->faces.vertices.clear();
     chunk->faces.indices.clear();
+    
+    chunk->faces.vertices.reserve(16 * 16 * 16 * 4 * 5);
+    chunk->faces.indices.reserve(16 * 16 * 16 * 6);
     
     for (int y = 0; y < 16; ++y) {
         for (int x = 0; x < 16; ++x) {
@@ -144,8 +211,13 @@ void JobSystem::generateChunkFaces(ChunkData* chunk) {
 }
 
 void JobSystem::generateChunkModels(ChunkData* chunk) {
+    std::lock_guard<std::mutex> lock(chunkMutex);
+    
     chunk->models.transforms.clear();
     chunk->models.modelIds.clear();
+    
+    chunk->models.transforms.reserve(10 * 16);
+    chunk->models.modelIds.reserve(10);
     
     for (int i = 0; i < 10; ++i) {
         float x = chunk->x * 16 + (i % 16);
@@ -163,8 +235,13 @@ void JobSystem::generateChunkModels(ChunkData* chunk) {
 }
 
 void JobSystem::generateChunkLighting(ChunkData* chunk) {
+    std::lock_guard<std::mutex> lock(chunkMutex);
+    
     chunk->lighting.lightLevels.clear();
     chunk->lighting.lightColors.clear();
+    
+    chunk->lighting.lightLevels.reserve(16 * 16 * 16);
+    chunk->lighting.lightColors.reserve(16 * 16 * 16);
     
     for (int y = 0; y < 16; ++y) {
         for (int x = 0; x < 16; ++x) {

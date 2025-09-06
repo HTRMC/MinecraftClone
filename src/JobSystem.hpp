@@ -78,15 +78,21 @@ public:
     void submitChunkMeshUpdate(ChunkData* chunk);
     void submitChunkLightUpdate(ChunkData* chunk);
     
+    std::future<void> submitChunkGenerationParallel(ChunkData* chunk);
+    void submitChunkOperationsParallel(ChunkData* chunk, std::function<void()> onComplete = nullptr);
+    
     size_t getQueueSize() const;
     size_t getActiveJobs() const;
+    size_t getThreadCount() const { return numThreads; }
+    bool isRunning() const { return running.load(); }
+
+    void generateChunkFaces(ChunkData* chunk);
+    void generateChunkLighting(ChunkData* chunk);
     
 private:
     void workerLoop();
-    void generateChunkFaces(ChunkData* chunk);
     void generateChunkModels(ChunkData* chunk);
-    void generateChunkLighting(ChunkData* chunk);
-    
+
 private:
     std::vector<std::thread> workers;
     std::priority_queue<Job> jobQueue;
@@ -95,6 +101,9 @@ private:
     std::atomic<bool> running{false};
     std::atomic<size_t> activeJobs{0};
     size_t numThreads;
+    
+    mutable std::mutex chunkMutex;
+    std::condition_variable chunkCondition;
 };
 
 template<typename Func, typename... Args>

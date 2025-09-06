@@ -58,33 +58,39 @@ void MeshBufferManager::processChunk(ChunkData* chunk, JobPriority priority) {
         chunks[chunkKey]->isDirty = true;
     }
     
-    jobSystem->submit(priority, [this, chunkKey]() {
-        ChunkData* chunkData = nullptr;
-        {
-            std::lock_guard<std::mutex> lock(chunkMutex);
-            auto it = chunks.find(chunkKey);
-            if (it != chunks.end()) {
-                chunkData = it->second.get();
-            }
+    ChunkData* chunkData = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(chunkMutex);
+        auto it = chunks.find(chunkKey);
+        if (it != chunks.end()) {
+            chunkData = it->second.get();
         }
-        
-        if (chunkData && chunkData->isDirty) {
-            jobSystem->submitChunkGeneration(chunkData);
-            writeChunkToBuffers(chunkData);
-        }
-    });
+    }
+    
+    if (chunkData && chunkData->isDirty) {
+        jobSystem->submitChunkOperationsParallel(chunkData, [this, chunkData]() {
+            jobSystem->submit(JobPriority::DEFAULT, [this, chunkData]() {
+                writeChunkToBuffers(chunkData);
+            });
+        });
+    }
 }
 
 void MeshBufferManager::updateChunkMesh(int32_t chunkX, int32_t chunkZ) {
     uint64_t chunkKey = getChunkKey(chunkX, chunkZ);
     
-    std::lock_guard<std::mutex> lock(chunkMutex);
-    auto it = chunks.find(chunkKey);
-    if (it != chunks.end()) {
-        ChunkData* chunk = it->second.get();
-        jobSystem->submitChunkMeshUpdate(chunk);
-        
+    ChunkData* chunk = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(chunkMutex);
+        auto it = chunks.find(chunkKey);
+        if (it != chunks.end()) {
+            chunk = it->second.get();
+        }
+    }
+    
+    if (chunk) {
         jobSystem->submit(JobPriority::DEFAULT, [this, chunk]() {
+            jobSystem->generateChunkFaces(chunk);
             writeChunkToBuffers(chunk);
         });
     }
@@ -93,13 +99,19 @@ void MeshBufferManager::updateChunkMesh(int32_t chunkX, int32_t chunkZ) {
 void MeshBufferManager::updateChunkLighting(int32_t chunkX, int32_t chunkZ) {
     uint64_t chunkKey = getChunkKey(chunkX, chunkZ);
     
-    std::lock_guard<std::mutex> lock(chunkMutex);
-    auto it = chunks.find(chunkKey);
-    if (it != chunks.end()) {
-        ChunkData* chunk = it->second.get();
-        jobSystem->submitChunkLightUpdate(chunk);
-        
+    ChunkData* chunk = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(chunkMutex);
+        auto it = chunks.find(chunkKey);
+        if (it != chunks.end()) {
+            chunk = it->second.get();
+        }
+    }
+    
+    if (chunk) {
         jobSystem->submit(JobPriority::LOW, [this, chunk]() {
+            jobSystem->generateChunkLighting(chunk);
+            
             if (!chunk->lighting.lightLevels.empty()) {
                 BufferInfo* lightBuffer = vulkanContext->acquireBuffer(lightBufferPool);
                 if (lightBuffer) {
