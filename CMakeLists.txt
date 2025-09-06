@@ -170,7 +170,7 @@ file(GLOB_RECURSE SHADER_FILES CONFIGURE_DEPENDS
 foreach(SHADER_PATH ${SHADER_FILES})
     # Compute the relative path from shaders/ folder
     file(RELATIVE_PATH REL_SHADER_FILE ${CMAKE_SOURCE_DIR}/assets/minecraft/shaders ${SHADER_PATH})
-    add_shader(${CMAKE_PROJECT_NAME} ${REL_SHADER_FILE})
+    add_shader(${CMAKE_PROJECT_NAME}Client ${REL_SHADER_FILE})
 endforeach()
 
 # Automatically copy assets to the binary directory
