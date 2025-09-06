@@ -754,7 +754,9 @@ void VulkanContext::destroyImage(ImageInfo& imageInfo) {
 }
 
 void VulkanContext::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
-    VkCommandBuffer commandBuffer = beginSingleTimeCommands(true);
+    // Use graphics queue for transitions involving shader stages
+    bool useTransferQueue = !(newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands(useTransferQueue);
     
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -790,7 +792,7 @@ void VulkanContext::transitionImageLayout(VkImage image, VkFormat format, VkImag
     
     vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     
-    endSingleTimeCommands(commandBuffer, true);
+    endSingleTimeCommands(commandBuffer, useTransferQueue);
 }
 
 void VulkanContext::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {

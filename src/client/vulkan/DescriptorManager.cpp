@@ -97,7 +97,7 @@ void DescriptorManager::createDescriptorSetLayout() {
         0, // LightData
         0, // ChunkCoordBuffer
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, // Texture array (binding 5)
-        VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT  // Sampler (binding 6, must be last for variable count)
+        0  // Sampler (binding 6) - fixed count of 1, no variable descriptor count needed
     };
     
     VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{};
