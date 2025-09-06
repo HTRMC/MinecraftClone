@@ -4,6 +4,7 @@
 #include <thread>
 #include <chrono>
 
+#include "Logger.hpp"
 #include "resource/language/I18n.hpp"
 
 MinecraftClient::MinecraftClient()
@@ -27,6 +28,8 @@ void MinecraftClient::run() {
 
         window->updateTitle();
     }
+
+    Logger::info("Render thread", "Stopping!");
 }
 
 void MinecraftClient::setCurrentServerName(const std::string& name) {
