@@ -84,6 +84,34 @@ uint32_t TextureManager::loadTexture(const std::string& texturePath) {
     }
 }
 
+uint32_t TextureManager::loadTextureDuplicate(const std::string& texturePath) {
+    // Check texture limit
+    if (nextTextureId >= MAX_TEXTURES) {
+        Logger::error("TextureManager", "Maximum texture limit reached: " + std::to_string(MAX_TEXTURES));
+        return 0; // Return default texture ID
+    }
+    
+    // Create new texture entry without checking cache
+    TextureEntry entry;
+    entry.textureId = nextTextureId;
+    entry.path = texturePath;
+    
+    try {
+        createTextureImage(texturePath, entry);
+        
+        // Add to tracking (don't update pathToTextureId cache)
+        textureEntries.push_back(entry);
+        textureImageViews.push_back(entry.imageView);
+        
+        Logger::info("TextureManager", "Loaded duplicate texture " + std::to_string(nextTextureId) + ": " + texturePath);
+        
+        return nextTextureId++;
+    } catch (const std::exception& e) {
+        Logger::error("TextureManager", "Failed to load duplicate texture " + texturePath + ": " + std::string(e.what()));
+        return 0; // Return default texture ID
+    }
+}
+
 const TextureEntry* TextureManager::getTextureInfo(uint32_t textureId) const {
     if (textureId < textureEntries.size()) {
         return &textureEntries[textureId];

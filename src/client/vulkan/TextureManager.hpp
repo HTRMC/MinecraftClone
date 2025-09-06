@@ -23,6 +23,9 @@ public:
     // Load a texture and return its ID for bindless access
     uint32_t loadTexture(const std::string& texturePath);
     
+    // Load a texture without caching (creates duplicate entries)
+    uint32_t loadTextureDuplicate(const std::string& texturePath);
+    
     // Get texture info by ID
     const TextureEntry* getTextureInfo(uint32_t textureId) const;
     
