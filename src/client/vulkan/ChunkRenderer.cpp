@@ -31,7 +31,7 @@ void ChunkRenderer::init() {
                                          textureManager);
     
     // Add test data for initial rendering
-    addTestCubeFromJSON();
+    addFullChunk();
     
     initialized = true;
     Logger::info("ChunkRenderer", "Initialized chunk renderer");
@@ -436,5 +436,81 @@ void ChunkRenderer::loadDefaultTextures() {
         Logger::info("ChunkRenderer", "Loaded default textures");
     } catch (const std::exception& e) {
         Logger::warning("ChunkRenderer", "Failed to load default texture: " + std::string(e.what()));
+    }
+}
+
+void ChunkRenderer::addFullChunk() {
+    try {
+        // Load the stone model from JSON with inheritance support
+        BlockModel model = BlockModelLoader::loadModelWithInheritance("assets/minecraft/models/block/stone.json");
+        
+        // Generate mesh data from the model
+        std::vector<ModelData> meshData = BlockModelLoader::generateMeshData(model);
+        
+        RenderData chunkData;
+        
+        // Create a single test chunk at origin
+        chunkData.chunkCoords.push_back(glm::ivec4(0, 0, 0, 0));
+        
+        // Use white lighting for proper texture display
+        uint32_t faceColors[6][3] = {
+            {31, 31, 31},   // West: White
+            {31, 31, 31},   // East: White  
+            {31, 31, 31},   // North: White
+            {31, 31, 31},   // South: White
+            {31, 31, 31},   // Down: White
+            {31, 31, 31}    // Up: White
+        };
+        
+        // Add the 6 base models once (reuse for all blocks)
+        for (size_t faceIndex = 0; faceIndex < meshData.size() && faceIndex < 6; ++faceIndex) {
+            chunkData.models.push_back(meshData[faceIndex]);
+        }
+        
+        // Generate 16x16x16 blocks without culling
+        for (int x = 0; x < 16; x++) {
+            for (int y = 0; y < 16; y++) {
+                for (int z = 0; z < 16; z++) {
+                    // For each block, add all 6 faces (no culling)
+                    for (size_t faceIndex = 0; faceIndex < meshData.size() && faceIndex < 6; ++faceIndex) {
+                        // Create lighting data for this face
+                        uint32_t ao = 31;
+                        uint32_t skyLight = 31;
+                        uint32_t blockLight = 0;
+                        uint32_t r = faceColors[faceIndex][0];
+                        uint32_t g = faceColors[faceIndex][1]; 
+                        uint32_t b = faceColors[faceIndex][2];
+                        uint32_t packedLight = ao | (skyLight << 5) | (blockLight << 10) | (r << 15) | (g << 20) | (b << 25);
+                        
+                        LightData lightData = {};
+                        lightData.vertex0 = packedLight;
+                        lightData.vertex1 = packedLight;
+                        lightData.vertex2 = packedLight;
+                        lightData.vertex3 = packedLight;
+                        chunkData.lights.push_back(lightData);
+                        
+                        // Create face data referencing this model and lighting
+                        FaceData face = {};
+                        uint16_t lightIndex = static_cast<uint16_t>(chunkData.lights.size() - 1);
+                        uint16_t quadIndex = static_cast<uint16_t>(faceIndex); // Reuse the same 6 models
+                        
+                        // Pack position using proper utility function
+                        face.setPosition(x, y, z, false, lightIndex);
+                        face.setBlockAndQuad(static_cast<uint16_t>(faceIndex), quadIndex);
+                        face.chunkIndex = 0;
+                        chunkData.faces.push_back(face);
+                    }
+                }
+            }
+        }
+        
+        // Update render data
+        updateRenderData(chunkData);
+        
+        Logger::info("ChunkRenderer", "Added full 16x16x16 chunk with " + std::to_string(chunkData.faces.size()) + " faces, " +
+                     std::to_string(chunkData.models.size()) + " models, " + std::to_string(chunkData.lights.size()) + " lights");
+                     
+    } catch (const std::exception& e) {
+        Logger::error("ChunkRenderer", "Failed to load full chunk: " + std::string(e.what()));
     }
 }

@@ -44,6 +44,7 @@ public:
     // Add test data for initial rendering
     void addTestCube();
     void addTestCubeFromJSON();
+    void addFullChunk();
 
 private:
     void createBuffers();
