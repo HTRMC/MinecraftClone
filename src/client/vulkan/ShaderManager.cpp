@@ -29,15 +29,9 @@ void ShaderManager::cleanup() {
     }
     shaderModules.clear();
     
-    if (meshShaderModule != VK_NULL_HANDLE) {
-        destroyShaderModule(meshShaderModule);
-        meshShaderModule = VK_NULL_HANDLE;
-    }
-    
-    if (fragmentShaderModule != VK_NULL_HANDLE) {
-        destroyShaderModule(fragmentShaderModule);
-        fragmentShaderModule = VK_NULL_HANDLE;
-    }
+    // Reset handles to avoid double destruction
+    meshShaderModule = VK_NULL_HANDLE;
+    fragmentShaderModule = VK_NULL_HANDLE;
     
     initialized = false;
 }
