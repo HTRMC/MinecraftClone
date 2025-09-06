@@ -23,6 +23,36 @@ struct BufferPool {
     VkDeviceSize bufferSize = 0;
 };
 
+struct QueueFamilyIndices {
+    std::optional<uint32_t> graphicsFamily;
+    std::optional<uint32_t> transferFamily;
+    std::optional<uint32_t> computeFamily;
+    
+    bool isComplete() const {
+        return graphicsFamily.has_value();
+    }
+    
+    bool hasDistinctTransferQueue() const {
+        return transferFamily.has_value() && transferFamily != graphicsFamily;
+    }
+};
+
+struct CommandPool {
+    VkCommandPool pool = VK_NULL_HANDLE;
+    std::vector<VkCommandBuffer> buffers;
+    uint32_t currentBuffer = 0;
+};
+
+struct TransferOperation {
+    VkBuffer srcBuffer;
+    VkBuffer dstBuffer;
+    VkDeviceSize size;
+    VkDeviceSize srcOffset = 0;
+    VkDeviceSize dstOffset = 0;
+    VkSemaphore completionSemaphore = VK_NULL_HANDLE;
+    VkFence completionFence = VK_NULL_HANDLE;
+};
+
 class VulkanContext {
 public:
     VulkanContext(Window* window);
@@ -39,6 +69,17 @@ public:
     void destroyBufferPool(BufferPool& pool);
     BufferInfo* acquireBuffer(BufferPool& pool);
     void releaseBuffer(BufferPool& pool, uint32_t bufferIndex);
+    
+    BufferInfo createStagingBuffer(VkDeviceSize size);
+    VkCommandBuffer beginSingleTimeCommands(bool useTransferQueue = true);
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer, bool useTransferQueue = true);
+    void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size, 
+                   VkDeviceSize srcOffset = 0, VkDeviceSize dstOffset = 0);
+    void copyBufferAsync(const TransferOperation& transfer);
+    
+    VkQueue getGraphicsQueue() const { return graphicsQueue; }
+    VkQueue getTransferQueue() const { return transferQueue; }
+    VkDevice getDevice() const { return device; }
 
 private:
     void createInstance();
@@ -46,7 +87,9 @@ private:
     void pickPhysicalDevice();
     void createLogicalDevice();
     void createSurface(Window* window);
-
+    void createCommandPools();
+    
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
     bool checkValidationLayerSupport();
     std::vector<const char*> getRequiredExtensions();
 
@@ -56,7 +99,12 @@ private:
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     VkQueue graphicsQueue = VK_NULL_HANDLE;
+    VkQueue transferQueue = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
+    
+    QueueFamilyIndices queueFamilyIndices;
+    CommandPool graphicsCommandPool;
+    CommandPool transferCommandPool;
 
     const std::vector<const char*> validationLayers = {
         "VK_LAYER_KHRONOS_validation"
