@@ -6,21 +6,21 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 proj;
 } ubo;
 
-// Face Buffer structure - separate indices for shared data
+// Face Buffer structure - unique per face
 struct FaceData {
     uint positionAndFlags;         // x(5) + y(5) + z(5) + isBackFace(1) + lightIndex(16)
     uint blockAndQuad;             // quadIndex(16) + texture(16)
     uint chunkIndex;               // chunk index
 };
 
-// Model Buffer structure (112 bytes per quad - std430 layout)
+// Model Buffer structure - reusable geometry
 struct ModelData {
     vec4 vertices[4];      // 4×4×f32 vertex positions (64 bytes)
     vec2 uvCoords[4];      // 4×2×f32 UV coordinates (32 bytes)
     vec4 faceNormal;       // 4×f32 face normal (16 bytes)
 };
 
-// Light Buffer structure (16 bytes per light entry)
+// Light Buffer structure - lighting per face
 struct LightData {
     uint vertex0;  // ao(5) + skyLight(5) + blockLight(5) + r(5) + g(5) + b(5) + padding(2)
     uint vertex1;  // Same layout for vertex 1

@@ -462,9 +462,10 @@ void ChunkRenderer::addFullChunk() {
             {31, 31, 31}    // Up: White
         };
         
-        // Add the 6 base models once (reuse for all blocks)
-        for (size_t faceIndex = 0; faceIndex < meshData.size() && faceIndex < 6; ++faceIndex) {
-            chunkData.models.push_back(meshData[faceIndex]);
+        // Add only ONE stone block model that all faces will reference
+        if (!meshData.empty()) {
+            // Use the first model as our stone block model
+            chunkData.models.push_back(meshData[0]);
         }
         
         // Generate 16x16x16 blocks without culling
@@ -472,7 +473,7 @@ void ChunkRenderer::addFullChunk() {
             for (int y = 0; y < 16; y++) {
                 for (int z = 0; z < 16; z++) {
                     // For each block, add all 6 faces (no culling)
-                    for (size_t faceIndex = 0; faceIndex < meshData.size() && faceIndex < 6; ++faceIndex) {
+                    for (int faceIndex = 0; faceIndex < 6; ++faceIndex) {
                         // Create lighting data for this face
                         uint32_t ao = 31;
                         uint32_t skyLight = 31;
@@ -489,14 +490,14 @@ void ChunkRenderer::addFullChunk() {
                         lightData.vertex3 = packedLight;
                         chunkData.lights.push_back(lightData);
                         
-                        // Create face data referencing this model and lighting
+                        // Create face data referencing the single stone model and this lighting
                         FaceData face = {};
                         uint16_t lightIndex = static_cast<uint16_t>(chunkData.lights.size() - 1);
-                        uint16_t quadIndex = static_cast<uint16_t>(faceIndex); // Reuse the same 6 models
+                        uint16_t quadIndex = 0; // Always reference the single stone model at index 0
                         
                         // Pack position using proper utility function
                         face.setPosition(x, y, z, false, lightIndex);
-                        face.setBlockAndQuad(static_cast<uint16_t>(faceIndex), quadIndex);
+                        face.setBlockAndQuad(0, quadIndex); // texture = 0 (stone), quadIndex = 0 (single model)
                         face.chunkIndex = 0;
                         chunkData.faces.push_back(face);
                     }
