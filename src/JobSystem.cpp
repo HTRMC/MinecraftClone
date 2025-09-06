@@ -195,7 +195,7 @@ void JobSystem::workerLoop() {
     }
 }
 
-void JobSystem::generateChunkFaces(ChunkData* chunk) {
+void JobSystem::gain(ChunkData* chunk) {
     std::lock_guard<std::mutex> lock(chunkMutex);
     
     chunk->faces.vertices.clear();

@@ -10,7 +10,6 @@ public:
                        DescriptorManager* descriptorManager);
     ~MeshShaderPipeline();
     
-    void init(VkRenderPass renderPass);
     void initWithDynamicRendering(VkFormat colorFormat, VkFormat depthFormat);
     void cleanup();
     
@@ -20,7 +19,6 @@ public:
     void bind(VkCommandBuffer commandBuffer);
 
 private:
-    void createPipeline(VkRenderPass renderPass);
     void createPipelineWithDynamicRendering(VkFormat colorFormat, VkFormat depthFormat);
     
 private:

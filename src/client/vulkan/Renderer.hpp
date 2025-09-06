@@ -35,9 +35,6 @@ private:
     void createSwapChain();
     void createImageViews();
     void createDepthResources();
-    void createRenderPass();
-    void createFramebuffers();
-    
     void createDynamicRenderingInfo();
     void createCommandBuffers();
     
@@ -48,8 +45,6 @@ private:
     VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
     bool hasStencilComponent(VkFormat format);
     
-    void recordStaticCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
-    void updateDynamicCommands(VkCommandBuffer commandBuffer);
     void recordDynamicRenderingCommands(VkCommandBuffer commandBuffer, uint32_t imageIndex);
     
     SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
@@ -70,13 +65,11 @@ private:
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;
-    std::vector<VkFramebuffer> swapChainFramebuffers;
     
     VkImage depthImage = VK_NULL_HANDLE;
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
     
-    VkRenderPass renderPass = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     
     std::vector<VkSemaphore> imageAvailableSemaphores;
@@ -106,5 +99,4 @@ private:
     std::vector<uint64_t> lastSubmittedFrame;
     
     VkRenderingInfo dynamicRenderingInfo = {};
-    bool useDynamicRendering = true;
 };

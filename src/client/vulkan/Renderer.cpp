@@ -22,14 +22,7 @@ void Renderer::init() {
     createSwapChain();
     createImageViews();
     createDepthResources();
-    
-    if (useDynamicRendering) {
-        createDynamicRenderingInfo();
-    } else {
-        createRenderPass();
-        createFramebuffers();
-    }
-    
+    createDynamicRenderingInfo();
     createCommandBuffers();
     
     // Initialize rendering components
@@ -43,11 +36,7 @@ void Renderer::init() {
     textureManager->init();
     
     meshPipeline = std::make_unique<MeshShaderPipeline>(vulkanContext, shaderManager.get(), descriptorManager.get());
-    if (useDynamicRendering) {
-        meshPipeline->initWithDynamicRendering(swapChainImageFormat, findDepthFormat());
-    } else {
-        meshPipeline->init(renderPass);
-    }
+    meshPipeline->initWithDynamicRendering(swapChainImageFormat, findDepthFormat());
     
     chunkRenderer = std::make_unique<ChunkRenderer>(vulkanContext, descriptorManager.get(), meshPipeline.get(), textureManager.get());
     chunkRenderer->init();
@@ -187,15 +176,7 @@ void Renderer::render() {
             return;
         }
         
-        if (useDynamicRendering) {
-            recordDynamicRenderingCommands(commandBuffers[currentFrame], imageIndex);
-        } else {
-            // Record static commands (render pass setup, viewport, etc.)
-            recordStaticCommandBuffer(commandBuffers[currentFrame], imageIndex);
-            
-            // Record dynamic commands (UBO updates, draw calls) 
-            updateDynamicCommands(commandBuffers[currentFrame]);
-        }
+        recordDynamicRenderingCommands(commandBuffers[currentFrame], imageIndex);
         
         commandBuffersRecorded[currentFrame] = true;
         recordedForImageIndex[currentFrame] = imageIndex;
@@ -442,89 +423,6 @@ bool Renderer::hasStencilComponent(VkFormat format) {
     return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
-void Renderer::createRenderPass() {
-    VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = swapChainImageFormat;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    
-    // Add depth attachment
-    VkAttachmentDescription depthAttachment{};
-    depthAttachment.format = findDepthFormat();
-    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    
-    VkAttachmentReference colorAttachmentRef{};
-    colorAttachmentRef.attachment = 0;
-    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    
-    VkAttachmentReference depthAttachmentRef{};
-    depthAttachmentRef.attachment = 1;
-    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorAttachmentRef;
-    subpass.pDepthStencilAttachment = &depthAttachmentRef;
-    
-    VkSubpassDependency dependency{};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.srcAccessMask = 0;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    
-    std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
-    VkRenderPassCreateInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-    renderPassInfo.pAttachments = attachments.data();
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
-    renderPassInfo.dependencyCount = 1;
-    renderPassInfo.pDependencies = &dependency;
-    
-    if (vkCreateRenderPass(vulkanContext->getDevice(), &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create render pass!");
-    }
-}
-
-void Renderer::createFramebuffers() {
-    swapChainFramebuffers.resize(swapChainImageViews.size());
-    
-    for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-        std::array<VkImageView, 2> attachments = {
-            swapChainImageViews[i],
-            depthImageView
-        };
-        
-        VkFramebufferCreateInfo framebufferInfo{};
-        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        framebufferInfo.renderPass = renderPass;
-        framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-        framebufferInfo.pAttachments = attachments.data();
-        framebufferInfo.width = swapChainExtent.width;
-        framebufferInfo.height = swapChainExtent.height;
-        framebufferInfo.layers = 1;
-        
-        if (vkCreateFramebuffer(vulkanContext->getDevice(), &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create framebuffer!");
-        }
-    }
-}
-
 void Renderer::createCommandBuffers() {
     commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
     commandBuffersRecorded.resize(MAX_FRAMES_IN_FLIGHT, false);
@@ -539,65 +437,6 @@ void Renderer::createCommandBuffers() {
     
     if (vkAllocateCommandBuffers(vulkanContext->getDevice(), &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate command buffers!");
-    }
-}
-
-void Renderer::recordStaticCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    
-    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to begin recording command buffer!");
-    }
-    
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = renderPass;
-    renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = swapChainExtent;
-    
-    std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color = {{0.2f, 0.3f, 0.8f, 1.0f}};  // Color attachment
-    clearValues[1].depthStencil = {1.0f, 0};              // Depth attachment (1.0 = far)
-    
-    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-    renderPassInfo.pClearValues = clearValues.data();
-    
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = (float) swapChainExtent.width;
-    viewport.height = (float) swapChainExtent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-    
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = swapChainExtent;
-    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-}
-
-void Renderer::updateDynamicCommands(VkCommandBuffer commandBuffer) {
-    // Check if camera has changed and create UBO
-    bool cameraChanged = camera && camera->hasChanged();
-    UniformBufferObject ubo = createUBO();
-    
-    // Reset camera change flag after creating UBO
-    if (cameraChanged) {
-        camera->resetChangeFlag();
-    }
-    
-    // Render chunks using mesh shaders
-    chunkRenderer->render(commandBuffer, ubo, cameraChanged);
-    
-    vkCmdEndRenderPass(commandBuffer);
-    
-    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to record command buffer!");
     }
 }
 
@@ -789,13 +628,7 @@ void Renderer::recreateSwapChain() {
     createSwapChain();
     createImageViews();
     createDepthResources();
-    
-    if (useDynamicRendering) {
-        createDynamicRenderingInfo();
-    } else {
-        createRenderPass();
-        createFramebuffers();
-    }
+    createDynamicRenderingInfo();
     
     // Recreate per-swapchain-image render finished semaphores with new size
     perImageRenderFinishedSemaphores.resize(swapChainImages.size());
@@ -809,22 +642,14 @@ void Renderer::recreateSwapChain() {
         }
     }
     
-    // Recreate mesh pipeline with new render pass or dynamic rendering
+    // Recreate mesh pipeline with dynamic rendering
     if (meshPipeline) {
         meshPipeline->cleanup();
-        if (useDynamicRendering) {
-            meshPipeline->initWithDynamicRendering(swapChainImageFormat, findDepthFormat());
-        } else {
-            meshPipeline->init(renderPass);
-        }
+        meshPipeline->initWithDynamicRendering(swapChainImageFormat, findDepthFormat());
     }
 }
 
 void Renderer::cleanupSwapChain() {
-    for (auto framebuffer : swapChainFramebuffers) {
-        vkDestroyFramebuffer(vulkanContext->getDevice(), framebuffer, nullptr);
-    }
-    
     for (auto imageView : swapChainImageViews) {
         vkDestroyImageView(vulkanContext->getDevice(), imageView, nullptr);
     }
@@ -845,10 +670,5 @@ void Renderer::cleanupSwapChain() {
     
     if (swapChain != VK_NULL_HANDLE) {
         vkDestroySwapchainKHR(vulkanContext->getDevice(), swapChain, nullptr);
-    }
-    
-    if (renderPass != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(vulkanContext->getDevice(), renderPass, nullptr);
-        renderPass = VK_NULL_HANDLE;
     }
 }
