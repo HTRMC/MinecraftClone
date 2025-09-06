@@ -1,9 +1,7 @@
 #include "Language.hpp"
 #include <fstream>
-#include <nlohmann/json.hpp>
+#include <simdjson.h>
 #include <iostream>
-
-using json = nlohmann::json;
 
 std::unique_ptr<Language> Language::instance = nullptr;
 
@@ -29,12 +27,27 @@ std::unique_ptr<Language> Language::loadFromFile(const std::string& path) {
         return nullptr;
     }
 
-    json j;
-    file >> j;
+    // Read entire file into string for simdjson
+    std::string json_content((std::istreambuf_iterator<char>(file)),
+                             std::istreambuf_iterator<char>());
+    
+    simdjson::dom::parser parser;
+    simdjson::dom::element doc;
+    auto parse_error = parser.parse(json_content).get(doc);
+    if (parse_error) {
+        std::cerr << "Failed to parse JSON from file: " << path << " - " << parse_error << "\n";
+        return nullptr;
+    }
 
     auto lang = std::unique_ptr<Language>(new Language());
-    for (auto it = j.begin(); it != j.end(); ++it) {
-        lang->translations[it.key()] = it.value().get<std::string>();
+    
+    // Iterate through all key-value pairs in the JSON object
+    for (auto [key, value] : doc.get_object()) {
+        std::string_view key_view = key;
+        std::string_view value_view;
+        if (value.get_string().get(value_view) == simdjson::SUCCESS) {
+            lang->translations[std::string(key_view)] = std::string(value_view);
+        }
     }
 
     return lang;

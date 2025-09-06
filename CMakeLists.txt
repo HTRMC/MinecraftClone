@@ -24,6 +24,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+# simdjson for high-performance JSON parsing
+FetchContent_Declare(
+        simdjson
+        GIT_REPOSITORY https://github.com/simdjson/simdjson.git
+        GIT_TAG        v3.13.0
+)
+FetchContent_MakeAvailable(simdjson)
+
 
 # SPNG
 FetchContent_Declare(
@@ -199,13 +207,13 @@ target_include_directories(${CMAKE_PROJECT_NAME}Server PRIVATE
 
 # Platform-specific libraries
 if(WIN32)
-    target_link_libraries(${CMAKE_PROJECT_NAME}Client PRIVATE glfw ${Vulkan_LIBRARIES} spng_static dwmapi)
-    target_link_libraries(${CMAKE_PROJECT_NAME}Server PRIVATE glfw ${Vulkan_LIBRARIES} spng_static dwmapi)
+    target_link_libraries(${CMAKE_PROJECT_NAME}Client PRIVATE glfw ${Vulkan_LIBRARIES} spng_static simdjson dwmapi)
+    target_link_libraries(${CMAKE_PROJECT_NAME}Server PRIVATE glfw ${Vulkan_LIBRARIES} spng_static simdjson dwmapi)
 elseif(UNIX AND NOT APPLE)
-    target_link_libraries(${CMAKE_PROJECT_NAME}Client PRIVATE glfw ${Vulkan_LIBRARIES} spng_static)
-    target_link_libraries(${CMAKE_PROJECT_NAME}Server PRIVATE glfw ${Vulkan_LIBRARIES} spng_static)
+    target_link_libraries(${CMAKE_PROJECT_NAME}Client PRIVATE glfw ${Vulkan_LIBRARIES} spng_static simdjson)
+    target_link_libraries(${CMAKE_PROJECT_NAME}Server PRIVATE glfw ${Vulkan_LIBRARIES} spng_static simdjson)
 elseif(APPLE)
-    target_link_libraries(${CMAKE_PROJECT_NAME}Client PRIVATE glfw ${Vulkan_LIBRARIES} spng_static)
-    target_link_libraries(${CMAKE_PROJECT_NAME}Server PRIVATE glfw ${Vulkan_LIBRARIES} spng_static)
+    target_link_libraries(${CMAKE_PROJECT_NAME}Client PRIVATE glfw ${Vulkan_LIBRARIES} spng_static simdjson)
+    target_link_libraries(${CMAKE_PROJECT_NAME}Server PRIVATE glfw ${Vulkan_LIBRARIES} spng_static simdjson)
 endif()
 
