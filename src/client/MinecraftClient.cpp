@@ -21,8 +21,18 @@ void MinecraftClient::run() {
     vulkan = std::make_unique<VulkanContext>(window.get());
     vulkan->init();
 
+    renderer = std::make_unique<Renderer>(vulkan.get(), window.get());
+    renderer->init();
+
     while (!window->shouldClose()) {
         window->pollEvents();
+
+        // Render frame
+        try {
+            renderer->render();
+        } catch (const std::exception& e) {
+            Logger::error("Renderer", e.what());
+        }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
 

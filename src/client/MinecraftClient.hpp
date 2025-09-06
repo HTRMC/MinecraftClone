@@ -5,6 +5,7 @@
 
 #include "util/Window.hpp"
 #include "vulkan/VulkanContext.hpp"
+#include "vulkan/Renderer.hpp"
 
 class MinecraftClient {
 public:
@@ -24,4 +25,5 @@ private:
 
     std::unique_ptr<Window> window;
     std::unique_ptr<VulkanContext> vulkan;
+    std::unique_ptr<Renderer> renderer;
 };

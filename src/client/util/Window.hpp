@@ -14,6 +14,8 @@ public:
 
     bool shouldClose() const;
     void pollEvents();
+    
+    GLFWwindow* getHandle() const { return glfwWindow; }
 
 private:
     void loadIcons();

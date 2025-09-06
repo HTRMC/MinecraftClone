@@ -100,7 +100,14 @@ public:
     
     VkQueue getGraphicsQueue() const { return graphicsQueue; }
     VkQueue getTransferQueue() const { return transferQueue; }
+    VkQueue getPresentQueue() const { return graphicsQueue; } // Assuming graphics queue handles present
     VkDevice getDevice() const { return device; }
+    VkPhysicalDevice getPhysicalDevice() const { return physicalDevice; }
+    VkInstance getInstance() const { return instance; }
+    const CommandPool& getGraphicsCommandPool() const { return graphicsCommandPool; }
+    
+    // Mesh shader extension function
+    PFN_vkCmdDrawMeshTasksEXT vkCmdDrawMeshTasksEXT = nullptr;
 
 private:
     void createInstance();
@@ -109,6 +116,7 @@ private:
     void createLogicalDevice();
     void createSurface(Window* window);
     void createCommandPools();
+    void loadExtensionFunctions();
     
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
     bool checkValidationLayerSupport();
@@ -131,7 +139,8 @@ private:
         "VK_LAYER_KHRONOS_validation"
     };
     const std::vector<const char*> deviceExtensions = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_EXT_MESH_SHADER_EXTENSION_NAME
     };
 
 #ifdef NDEBUG

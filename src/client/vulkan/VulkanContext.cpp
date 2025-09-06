@@ -37,6 +37,7 @@ void VulkanContext::init() {
     setupDebugMessenger();
     pickPhysicalDevice();
     createLogicalDevice();
+    loadExtensionFunctions();
     createCommandPools();
 }
 
@@ -688,4 +689,15 @@ void VulkanContext::copyBufferAsync(const TransferOperation& transfer) {
     vkQueueSubmit(transferQueue, 1, &submitInfo, transfer.completionFence);
     
     vkFreeCommandBuffers(device, transferCommandPool.pool, 1, &commandBuffer);
+}
+
+void VulkanContext::loadExtensionFunctions() {
+    // Load mesh shader extension functions
+    vkCmdDrawMeshTasksEXT = (PFN_vkCmdDrawMeshTasksEXT)vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT");
+    
+    if (!vkCmdDrawMeshTasksEXT) {
+        throw std::runtime_error("Failed to load vkCmdDrawMeshTasksEXT function!");
+    }
+    
+    Logger::info("VulkanContext", "Loaded mesh shader extension functions");
 }
