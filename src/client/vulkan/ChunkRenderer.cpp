@@ -221,9 +221,6 @@ void ChunkRenderer::createBuffers() {
 void ChunkRenderer::updateBuffers() {
     if (currentRenderData.faces.empty()) return;
     
-    // Ensure GPU is idle before updating buffers to prevent device lost
-    vkDeviceWaitIdle(vulkanContext->getDevice());
-    
     // Only recreate buffers if size changed, otherwise just update data
     size_t faceSize = currentRenderData.faces.size() * sizeof(FaceData);
     if (faceBuffer.size != faceSize) {
