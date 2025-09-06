@@ -45,7 +45,7 @@ void DescriptorManager::cleanup() {
 }
 
 void DescriptorManager::createDescriptorSetLayout() {
-    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
     
     // Binding 0: UBO (matrices)
     bindings[0].binding = static_cast<uint32_t>(DescriptorBinding::UBO);
@@ -77,10 +77,39 @@ void DescriptorManager::createDescriptorSetLayout() {
     bindings[4].descriptorCount = 1;
     bindings[4].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
     
+    // Binding 5: Texture array (bindless)
+    bindings[5].binding = 5;
+    bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    bindings[5].descriptorCount = 4096; // Max textures
+    bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    
+    // Binding 6: Texture sampler
+    bindings[6].binding = 6;
+    bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    bindings[6].descriptorCount = 1;
+    bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    
+    // Enable descriptor indexing for bindless textures
+    VkDescriptorBindingFlags bindingFlags[7] = {
+        0, // UBO
+        0, // FaceData
+        0, // ModelData  
+        0, // LightData
+        0, // ChunkCoordBuffer
+        VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, // Texture array
+        0  // Sampler
+    };
+    
+    VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{};
+    bindingFlagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+    bindingFlagsInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    bindingFlagsInfo.pBindingFlags = bindingFlags;
+    
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings = bindings.data();
+    layoutInfo.pNext = &bindingFlagsInfo;
     
     if (vkCreateDescriptorSetLayout(vulkanContext->getDevice(), &layoutInfo, nullptr, 
                                    &descriptorSetLayout) != VK_SUCCESS) {
@@ -103,7 +132,7 @@ void DescriptorManager::createPipelineLayout() {
 }
 
 void DescriptorManager::createDescriptorPool() {
-    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+    std::array<VkDescriptorPoolSize, 4> poolSizes{};
     
     // Pool for uniform buffers (UBO)
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -112,6 +141,14 @@ void DescriptorManager::createDescriptorPool() {
     // Pool for storage buffers (FaceData, ModelData, LightData, ChunkCoordBuffer)
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[1].descriptorCount = MAX_DESCRIPTOR_SETS * 4; // 4 storage buffers per set
+    
+    // Pool for sampled images (bindless texture array)
+    poolSizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    poolSizes[2].descriptorCount = MAX_DESCRIPTOR_SETS * 4096; // Max textures per set
+    
+    // Pool for samplers
+    poolSizes[3].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+    poolSizes[3].descriptorCount = MAX_DESCRIPTOR_SETS;
     
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -146,8 +183,10 @@ void DescriptorManager::updateDescriptorSet(VkDescriptorSet descriptorSet,
                                            VkBuffer faceDataBuffer,
                                            VkBuffer modelDataBuffer,
                                            VkBuffer lightDataBuffer,
-                                           VkBuffer chunkCoordBuffer) {
-    std::array<VkWriteDescriptorSet, 5> descriptorWrites{};
+                                           VkBuffer chunkCoordBuffer,
+                                           TextureManager* textureManager) {
+    uint32_t writeCount = 5; // Base descriptors
+    std::vector<VkWriteDescriptorSet> descriptorWrites(7); // Max 7 descriptors
     
     // UBO descriptor
     VkDescriptorBufferInfo uboBufferInfo{};
@@ -219,8 +258,46 @@ void DescriptorManager::updateDescriptorSet(VkDescriptorSet descriptorSet,
     descriptorWrites[4].descriptorCount = 1;
     descriptorWrites[4].pBufferInfo = &chunkCoordBufferInfo;
     
-    vkUpdateDescriptorSets(vulkanContext->getDevice(), static_cast<uint32_t>(descriptorWrites.size()),
-                          descriptorWrites.data(), 0, nullptr);
+    // Texture array and sampler descriptors (if textureManager provided)
+    std::vector<VkDescriptorImageInfo> imageInfos;
+    VkDescriptorImageInfo samplerInfo{};
+    
+    if (textureManager && textureManager->getTextureCount() > 0) {
+        // Texture array descriptor
+        const auto& imageViews = textureManager->getTextureImageViews();
+        imageInfos.resize(imageViews.size());
+        
+        for (size_t i = 0; i < imageViews.size(); ++i) {
+            imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfos[i].imageView = imageViews[i];
+            imageInfos[i].sampler = VK_NULL_HANDLE;
+        }
+        
+        descriptorWrites[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[5].dstSet = descriptorSet;
+        descriptorWrites[5].dstBinding = 5;
+        descriptorWrites[5].dstArrayElement = 0;
+        descriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        descriptorWrites[5].descriptorCount = static_cast<uint32_t>(imageInfos.size());
+        descriptorWrites[5].pImageInfo = imageInfos.data();
+        
+        // Sampler descriptor
+        samplerInfo.sampler = textureManager->getTextureSampler();
+        samplerInfo.imageView = VK_NULL_HANDLE;
+        samplerInfo.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        
+        descriptorWrites[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrites[6].dstSet = descriptorSet;
+        descriptorWrites[6].dstBinding = 6;
+        descriptorWrites[6].dstArrayElement = 0;
+        descriptorWrites[6].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+        descriptorWrites[6].descriptorCount = 1;
+        descriptorWrites[6].pImageInfo = &samplerInfo;
+        
+        writeCount = 7; // Include texture descriptors
+    }
+    
+    vkUpdateDescriptorSets(vulkanContext->getDevice(), writeCount, descriptorWrites.data(), 0, nullptr);
 }
 
 BufferInfo DescriptorManager::createUniformBuffer() {

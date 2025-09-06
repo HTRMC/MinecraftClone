@@ -1,6 +1,7 @@
 #pragma once
 #include "VulkanContext.hpp"
 #include "MeshShaderData.hpp"
+#include "TextureManager.hpp"
 
 class DescriptorManager {
 public:
@@ -19,7 +20,8 @@ public:
                            VkBuffer faceDataBuffer,
                            VkBuffer modelDataBuffer, 
                            VkBuffer lightDataBuffer,
-                           VkBuffer chunkCoordBuffer);
+                           VkBuffer chunkCoordBuffer,
+                           TextureManager* textureManager = nullptr);
     
     BufferInfo createUniformBuffer();
     void updateUniformBuffer(BufferInfo& uboBuffer, const UniformBufferObject& ubo);
