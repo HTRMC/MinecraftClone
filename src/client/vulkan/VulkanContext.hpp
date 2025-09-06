@@ -140,7 +140,8 @@ private:
     };
     const std::vector<const char*> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_EXT_MESH_SHADER_EXTENSION_NAME
+        VK_EXT_MESH_SHADER_EXTENSION_NAME,
+        VK_KHR_MAINTENANCE_4_EXTENSION_NAME
     };
 
 #ifdef NDEBUG
