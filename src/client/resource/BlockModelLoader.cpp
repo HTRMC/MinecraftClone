@@ -19,6 +19,20 @@ BlockModel BlockModelLoader::loadModelWithInheritance(const std::string& modelPa
         }
     }
     
+    // Resolve all texture references after inheritance chain is complete
+    std::unordered_map<std::string, std::string> resolvedTextures;
+    for (const auto& [key, value] : model.textures) {
+        resolvedTextures[key] = resolveTextureReference(value, model.textures);
+    }
+    model.textures = resolvedTextures;
+    
+    // Resolve texture references in element faces
+    for (auto& element : model.elements) {
+        for (auto& [faceName, face] : element.faces) {
+            face.texture = resolveTextureReference(face.texture, model.textures);
+        }
+    }
+    
     return model;
 }
 
@@ -423,23 +437,9 @@ BlockModel BlockModelLoader::mergeWithParent(const BlockModel& child, const Bloc
         }
     }
     
-    // Resolve texture references (e.g., "#particle" -> actual texture)
-    std::unordered_map<std::string, std::string> resolvedTextures;
-    for (const auto& [key, value] : merged.textures) {
-        resolvedTextures[key] = resolveTextureReference(value, merged.textures);
-    }
-    merged.textures = resolvedTextures;
-    
     // If child has no elements, inherit parent's elements
     if (merged.elements.empty() && !parent.elements.empty()) {
         merged.elements = parent.elements;
-    }
-    
-    // Resolve texture references in element faces
-    for (auto& element : merged.elements) {
-        for (auto& [faceName, face] : element.faces) {
-            face.texture = resolveTextureReference(face.texture, merged.textures);
-        }
     }
     
     // Clear parent reference as it's been resolved
