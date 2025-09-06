@@ -65,15 +65,60 @@ uint64_t QueueManager::submitGraphics(const GraphicsCommand& command) {
     graphicsCmd->recordFunc(cmdBuffer);
     vkEndCommandBuffer(cmdBuffer);
     
+    VkTimelineSemaphoreSubmitInfo timelineSubmitInfo{};
+    std::vector<VkSemaphore> waitSemaphores;
+    std::vector<uint64_t> waitValues;
+    std::vector<VkPipelineStageFlags> waitStages;
+    std::vector<VkSemaphore> signalSemaphores;
+    std::vector<uint64_t> signalValues;
+    
+    if (graphicsCmd->waitSemaphore != VK_NULL_HANDLE) {
+        waitSemaphores.push_back(graphicsCmd->waitSemaphore);
+        waitValues.push_back(0); // Binary semaphore
+        waitStages.push_back(graphicsCmd->waitStage);
+    }
+    
+    if (graphicsCmd->waitTimelineSemaphore != nullptr) {
+        waitSemaphores.push_back(graphicsCmd->waitTimelineSemaphore->semaphore);
+        waitValues.push_back(graphicsCmd->waitTimelineValue);
+        waitStages.push_back(graphicsCmd->waitStage);
+    }
+    
+    if (graphicsCmd->signalTimelineSemaphore != nullptr) {
+        signalSemaphores.push_back(graphicsCmd->signalTimelineSemaphore->semaphore);
+        signalValues.push_back(graphicsCmd->signalTimelineValue);
+    }
+    
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmdBuffer;
     
-    if (graphicsCmd->waitSemaphore != VK_NULL_HANDLE) {
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = &graphicsCmd->waitSemaphore;
-        submitInfo.pWaitDstStageMask = &graphicsCmd->waitStage;
+    if (!waitSemaphores.empty()) {
+        submitInfo.waitSemaphoreCount = static_cast<uint32_t>(waitSemaphores.size());
+        submitInfo.pWaitSemaphores = waitSemaphores.data();
+        submitInfo.pWaitDstStageMask = waitStages.data();
+        
+        timelineSubmitInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+        timelineSubmitInfo.waitSemaphoreValueCount = static_cast<uint32_t>(waitValues.size());
+        timelineSubmitInfo.pWaitSemaphoreValues = waitValues.data();
+        
+        if (!signalSemaphores.empty()) {
+            submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size());
+            submitInfo.pSignalSemaphores = signalSemaphores.data();
+            timelineSubmitInfo.signalSemaphoreValueCount = static_cast<uint32_t>(signalValues.size());
+            timelineSubmitInfo.pSignalSemaphoreValues = signalValues.data();
+        }
+        
+        submitInfo.pNext = &timelineSubmitInfo;
+    } else if (!signalSemaphores.empty()) {
+        submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size());
+        submitInfo.pSignalSemaphores = signalSemaphores.data();
+        
+        timelineSubmitInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+        timelineSubmitInfo.signalSemaphoreValueCount = static_cast<uint32_t>(signalValues.size());
+        timelineSubmitInfo.pSignalSemaphoreValues = signalValues.data();
+        submitInfo.pNext = &timelineSubmitInfo;
     }
     
     vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, graphicsCmd->signalFence);

@@ -222,11 +222,17 @@ void VulkanContext::createLogicalDevice() {
     vulkan12Features.descriptorBindingVariableDescriptorCount = VK_TRUE;
     vulkan12Features.pNext = &meshShaderFeatures;
 
+    // Enable timeline semaphore features
+    VkPhysicalDeviceTimelineSemaphoreFeatures timelineSemaphoreFeatures{};
+    timelineSemaphoreFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+    timelineSemaphoreFeatures.timelineSemaphore = VK_TRUE;
+    timelineSemaphoreFeatures.pNext = &meshShaderFeatures;
+
     // Enable maintenance4 features for LocalSizeId
     VkPhysicalDeviceMaintenance4Features maintenance4Features{};
     maintenance4Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES;
     maintenance4Features.maintenance4 = VK_TRUE;
-    maintenance4Features.pNext = &vulkan12Features;
+    maintenance4Features.pNext = &timelineSemaphoreFeatures;
 
     VkPhysicalDeviceFeatures2 deviceFeatures2{};
     deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -831,4 +837,66 @@ void VulkanContext::unmapBuffer(const BufferInfo& bufferInfo) {
     if (!bufferInfo.allocationInfo.pMappedData) {
         vmaUnmapMemory(allocator, bufferInfo.allocation);
     }
+}
+
+TimelineSemaphore VulkanContext::createTimelineSemaphore(uint64_t initialValue) {
+    TimelineSemaphore timelineSemaphore;
+    timelineSemaphore.value = initialValue;
+    timelineSemaphore.nextSignalValue = initialValue + 1;
+    
+    VkSemaphoreTypeCreateInfo timelineCreateInfo{};
+    timelineCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timelineCreateInfo.initialValue = initialValue;
+    
+    VkSemaphoreCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    createInfo.pNext = &timelineCreateInfo;
+    
+    if (vkCreateSemaphore(device, &createInfo, nullptr, &timelineSemaphore.semaphore) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create timeline semaphore!");
+    }
+    
+    return timelineSemaphore;
+}
+
+void VulkanContext::destroyTimelineSemaphore(TimelineSemaphore& timelineSemaphore) {
+    if (timelineSemaphore.semaphore != VK_NULL_HANDLE) {
+        vkDestroySemaphore(device, timelineSemaphore.semaphore, nullptr);
+        timelineSemaphore.semaphore = VK_NULL_HANDLE;
+    }
+}
+
+void VulkanContext::signalTimelineSemaphore(TimelineSemaphore& timelineSemaphore, uint64_t value) {
+    VkSemaphoreSignalInfo signalInfo{};
+    signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
+    signalInfo.semaphore = timelineSemaphore.semaphore;
+    signalInfo.value = value;
+    
+    if (vkSignalSemaphore(device, &signalInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to signal timeline semaphore!");
+    }
+    
+    timelineSemaphore.value = value;
+}
+
+void VulkanContext::waitForTimelineSemaphore(TimelineSemaphore& timelineSemaphore, uint64_t value, uint64_t timeout) {
+    VkSemaphoreWaitInfo waitInfo{};
+    waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    waitInfo.semaphoreCount = 1;
+    waitInfo.pSemaphores = &timelineSemaphore.semaphore;
+    waitInfo.pValues = &value;
+    
+    VkResult result = vkWaitSemaphores(device, &waitInfo, timeout);
+    if (result != VK_SUCCESS && result != VK_TIMEOUT) {
+        throw std::runtime_error("Failed to wait for timeline semaphore!");
+    }
+}
+
+uint64_t VulkanContext::getTimelineSemaphoreValue(TimelineSemaphore& timelineSemaphore) {
+    uint64_t value;
+    if (vkGetSemaphoreCounterValue(device, timelineSemaphore.semaphore, &value) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to get timeline semaphore value!");
+    }
+    return value;
 }

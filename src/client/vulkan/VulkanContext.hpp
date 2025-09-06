@@ -68,6 +68,16 @@ struct CommandPool {
     uint32_t currentBuffer = 0;
 };
 
+struct TimelineSemaphore {
+    VkSemaphore semaphore = VK_NULL_HANDLE;
+    uint64_t value = 0;
+    uint64_t nextSignalValue = 1;
+    
+    uint64_t getNextSignalValue() {
+        return nextSignalValue++;
+    }
+};
+
 struct TransferOperation {
     VkBuffer srcBuffer;
     VkBuffer dstBuffer;
@@ -76,6 +86,8 @@ struct TransferOperation {
     VkDeviceSize dstOffset = 0;
     VkSemaphore completionSemaphore = VK_NULL_HANDLE;
     VkFence completionFence = VK_NULL_HANDLE;
+    TimelineSemaphore* timelineSemaphore = nullptr;
+    uint64_t signalValue = 0;
 };
 
 class VulkanContext {
@@ -102,6 +114,12 @@ public:
     void processBufferFences(BufferPool& pool);
     bool isBufferAvailable(BufferPool& pool, uint32_t bufferIndex);
     VkFence createFence(bool signaled = false);
+    
+    TimelineSemaphore createTimelineSemaphore(uint64_t initialValue = 0);
+    void destroyTimelineSemaphore(TimelineSemaphore& timelineSemaphore);
+    void signalTimelineSemaphore(TimelineSemaphore& timelineSemaphore, uint64_t value);
+    void waitForTimelineSemaphore(TimelineSemaphore& timelineSemaphore, uint64_t value, uint64_t timeout = UINT64_MAX);
+    uint64_t getTimelineSemaphoreValue(TimelineSemaphore& timelineSemaphore);
     
     BufferInfo createStagingBuffer(VkDeviceSize size);
     BufferInfo createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
@@ -165,7 +183,8 @@ private:
     const std::vector<const char*> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_EXT_MESH_SHADER_EXTENSION_NAME,
-        VK_KHR_MAINTENANCE_4_EXTENSION_NAME
+        VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
+        VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME
     };
 
 #ifdef NDEBUG

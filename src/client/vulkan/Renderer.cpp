@@ -79,6 +79,9 @@ void Renderer::init() {
         }
     }
     
+    // Create timeline semaphore for advanced synchronization
+    frameTimelineSemaphore = vulkanContext->createTimelineSemaphore(0);
+    
     initialized = true;
     Logger::info("Renderer", "Initialized renderer with mesh shaders");
 }
@@ -100,6 +103,9 @@ void Renderer::cleanup() {
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroyFence(vulkanContext->getDevice(), inFlightFences[i], nullptr);
     }
+    
+    // Destroy timeline semaphore
+    vulkanContext->destroyTimelineSemaphore(frameTimelineSemaphore);
     
     chunkRenderer.reset();
     meshPipeline.reset();
@@ -184,20 +190,41 @@ void Renderer::render() {
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     
-    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    submitInfo.waitSemaphoreCount = 1;
+    // Get next timeline value for this frame
+    uint64_t currentTimelineValue = frameTimelineSemaphore.getNextSignalValue();
+    
+    // Set up semaphores (mix of binary and timeline)
+    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame], frameTimelineSemaphore.semaphore};
+    uint64_t waitValues[] = {0, frameTimelineSemaphore.value}; // Binary semaphore value is 0
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
+    submitInfo.waitSemaphoreCount = 2;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
+    
+    VkSemaphore signalSemaphores[] = {perImageRenderFinishedSemaphores[imageIndex], frameTimelineSemaphore.semaphore};
+    uint64_t signalValues[] = {0, currentTimelineValue}; // Binary semaphore value is 0
+    submitInfo.signalSemaphoreCount = 2;
+    submitInfo.pSignalSemaphores = signalSemaphores;
     
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
     
-    VkSemaphore signalSemaphores[] = {perImageRenderFinishedSemaphores[imageIndex]};
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = signalSemaphores;
+    // Set up timeline semaphore submit info
+    VkTimelineSemaphoreSubmitInfo timelineSubmitInfo{};
+    timelineSubmitInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    timelineSubmitInfo.waitSemaphoreValueCount = 2;
+    timelineSubmitInfo.pWaitSemaphoreValues = waitValues;
+    timelineSubmitInfo.signalSemaphoreValueCount = 2;
+    timelineSubmitInfo.pSignalSemaphoreValues = signalValues;
+    
+    submitInfo.pNext = &timelineSubmitInfo;
     
     VkResult submitResult = vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, inFlightFences[currentFrame]);
+    
+    // Update timeline semaphore value after successful submission
+    if (submitResult == VK_SUCCESS) {
+        frameTimelineSemaphore.value = currentTimelineValue;
+    }
     if (submitResult != VK_SUCCESS) {
         if (submitResult == VK_ERROR_DEVICE_LOST) {
             Logger::error("Renderer", "Device lost during queue submit! Attempting recovery...");

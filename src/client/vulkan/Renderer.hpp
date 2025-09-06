@@ -83,6 +83,9 @@ private:
     // Per-swapchain-image semaphores for proper synchronization
     std::vector<VkSemaphore> perImageRenderFinishedSemaphores;
     
+    // Timeline semaphores for advanced synchronization
+    TimelineSemaphore frameTimelineSemaphore;
+    
     uint32_t currentFrame = 0;
     uint64_t frameNumber = 0;
     static const int MAX_FRAMES_IN_FLIGHT = 2;

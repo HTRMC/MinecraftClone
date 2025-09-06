@@ -25,6 +25,10 @@ struct GraphicsCommand {
     VkSemaphore waitSemaphore = VK_NULL_HANDLE;
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
     VkFence signalFence = VK_NULL_HANDLE;
+    TimelineSemaphore* waitTimelineSemaphore = nullptr;
+    uint64_t waitTimelineValue = 0;
+    TimelineSemaphore* signalTimelineSemaphore = nullptr;
+    uint64_t signalTimelineValue = 0;
     uint64_t id;
     
     GraphicsCommand(std::function<void(VkCommandBuffer)> func) 
