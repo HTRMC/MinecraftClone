@@ -1,4 +1,4 @@
-#include "MeshBufferManager.hpp"
+#include "client/vulkan/MeshBufferManager.hpp"
 #include "Logger.hpp"
 #include <cstring>
 

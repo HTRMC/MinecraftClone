@@ -1,5 +1,5 @@
 #pragma once
-#include "vulkan/VulkanContext.hpp"
+#include "VulkanContext.hpp"
 #include "JobSystem.hpp"
 #include <unordered_map>
 #include <memory>
