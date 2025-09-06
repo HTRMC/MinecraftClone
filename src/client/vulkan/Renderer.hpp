@@ -37,6 +37,8 @@ private:
     void createDepthResources();
     void createRenderPass();
     void createFramebuffers();
+    
+    void createDynamicRenderingInfo();
     void createCommandBuffers();
     
     void recreateSwapChain();
@@ -48,6 +50,7 @@ private:
     
     void recordStaticCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
     void updateDynamicCommands(VkCommandBuffer commandBuffer);
+    void recordDynamicRenderingCommands(VkCommandBuffer commandBuffer, uint32_t imageIndex);
     
     SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
@@ -101,4 +104,7 @@ private:
     std::vector<bool> commandBuffersRecorded;
     std::vector<uint32_t> recordedForImageIndex;
     std::vector<uint64_t> lastSubmittedFrame;
+    
+    VkRenderingInfo dynamicRenderingInfo = {};
+    bool useDynamicRendering = true;
 };

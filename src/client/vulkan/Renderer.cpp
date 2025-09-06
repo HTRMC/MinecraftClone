@@ -22,8 +22,14 @@ void Renderer::init() {
     createSwapChain();
     createImageViews();
     createDepthResources();
-    createRenderPass();
-    createFramebuffers();
+    
+    if (useDynamicRendering) {
+        createDynamicRenderingInfo();
+    } else {
+        createRenderPass();
+        createFramebuffers();
+    }
+    
     createCommandBuffers();
     
     // Initialize rendering components
@@ -37,7 +43,11 @@ void Renderer::init() {
     textureManager->init();
     
     meshPipeline = std::make_unique<MeshShaderPipeline>(vulkanContext, shaderManager.get(), descriptorManager.get());
-    meshPipeline->init(renderPass);
+    if (useDynamicRendering) {
+        meshPipeline->initWithDynamicRendering(swapChainImageFormat, findDepthFormat());
+    } else {
+        meshPipeline->init(renderPass);
+    }
     
     chunkRenderer = std::make_unique<ChunkRenderer>(vulkanContext, descriptorManager.get(), meshPipeline.get(), textureManager.get());
     chunkRenderer->init();
@@ -177,11 +187,15 @@ void Renderer::render() {
             return;
         }
         
-        // Record static commands (render pass setup, viewport, etc.)
-        recordStaticCommandBuffer(commandBuffers[currentFrame], imageIndex);
-        
-        // Record dynamic commands (UBO updates, draw calls) 
-        updateDynamicCommands(commandBuffers[currentFrame]);
+        if (useDynamicRendering) {
+            recordDynamicRenderingCommands(commandBuffers[currentFrame], imageIndex);
+        } else {
+            // Record static commands (render pass setup, viewport, etc.)
+            recordStaticCommandBuffer(commandBuffers[currentFrame], imageIndex);
+            
+            // Record dynamic commands (UBO updates, draw calls) 
+            updateDynamicCommands(commandBuffers[currentFrame]);
+        }
         
         commandBuffersRecorded[currentFrame] = true;
         recordedForImageIndex[currentFrame] = imageIndex;
@@ -587,6 +601,116 @@ void Renderer::updateDynamicCommands(VkCommandBuffer commandBuffer) {
     }
 }
 
+void Renderer::createDynamicRenderingInfo() {
+    dynamicRenderingInfo = {};
+    dynamicRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    dynamicRenderingInfo.pNext = nullptr;
+    dynamicRenderingInfo.flags = 0;
+    dynamicRenderingInfo.renderArea = {{0, 0}, swapChainExtent};
+    dynamicRenderingInfo.layerCount = 1;
+    dynamicRenderingInfo.viewMask = 0;
+    dynamicRenderingInfo.colorAttachmentCount = 1;
+    
+    Logger::info("Renderer", "Dynamic rendering info created");
+}
+
+void Renderer::recordDynamicRenderingCommands(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to begin recording command buffer!");
+    }
+    
+    // Transition swapchain image to color attachment optimal layout
+    VkImageMemoryBarrier imageBarrier{};
+    imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    imageBarrier.image = swapChainImages[imageIndex];
+    imageBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    imageBarrier.subresourceRange.baseMipLevel = 0;
+    imageBarrier.subresourceRange.levelCount = 1;
+    imageBarrier.subresourceRange.baseArrayLayer = 0;
+    imageBarrier.subresourceRange.layerCount = 1;
+    imageBarrier.srcAccessMask = 0;
+    imageBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 
+                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
+    
+    // Setup color attachment
+    VkRenderingAttachmentInfo colorAttachment{};
+    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    colorAttachment.imageView = swapChainImageViews[imageIndex];
+    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.clearValue.color = {{0.2f, 0.3f, 0.8f, 1.0f}};
+    
+    // Setup depth attachment
+    VkRenderingAttachmentInfo depthAttachment{};
+    depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depthAttachment.imageView = depthImageView;
+    depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.clearValue.depthStencil = {1.0f, 0};
+    
+    // Begin dynamic rendering
+    VkRenderingInfo renderingInfo = dynamicRenderingInfo;
+    renderingInfo.renderArea = {{0, 0}, swapChainExtent};
+    renderingInfo.pColorAttachments = &colorAttachment;
+    renderingInfo.pDepthAttachment = &depthAttachment;
+    
+    vkCmdBeginRendering(commandBuffer, &renderingInfo);
+    
+    // Set dynamic viewport and scissor
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = (float) swapChainExtent.width;
+    viewport.height = (float) swapChainExtent.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+    
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = swapChainExtent;
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+    
+    // Check if camera has changed and create UBO
+    bool cameraChanged = camera && camera->hasChanged();
+    UniformBufferObject ubo = createUBO();
+    
+    // Reset camera change flag after creating UBO
+    if (cameraChanged) {
+        camera->resetChangeFlag();
+    }
+    
+    // Render chunks using mesh shaders
+    chunkRenderer->render(commandBuffer, ubo, cameraChanged);
+    
+    // End dynamic rendering
+    vkCmdEndRendering(commandBuffer);
+    
+    // Transition swapchain image to present layout
+    imageBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imageBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    imageBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    imageBarrier.dstAccessMask = 0;
+    
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
+                        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
+    
+    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to record command buffer!");
+    }
+}
+
 SwapChainSupportDetails Renderer::querySwapChainSupport(VkPhysicalDevice device) {
     SwapChainSupportDetails details;
     
@@ -665,8 +789,13 @@ void Renderer::recreateSwapChain() {
     createSwapChain();
     createImageViews();
     createDepthResources();
-    createRenderPass();
-    createFramebuffers();
+    
+    if (useDynamicRendering) {
+        createDynamicRenderingInfo();
+    } else {
+        createRenderPass();
+        createFramebuffers();
+    }
     
     // Recreate per-swapchain-image render finished semaphores with new size
     perImageRenderFinishedSemaphores.resize(swapChainImages.size());
@@ -680,10 +809,14 @@ void Renderer::recreateSwapChain() {
         }
     }
     
-    // Recreate mesh pipeline with new render pass
+    // Recreate mesh pipeline with new render pass or dynamic rendering
     if (meshPipeline) {
         meshPipeline->cleanup();
-        meshPipeline->init(renderPass);
+        if (useDynamicRendering) {
+            meshPipeline->initWithDynamicRendering(swapChainImageFormat, findDepthFormat());
+        } else {
+            meshPipeline->init(renderPass);
+        }
     }
 }
 

@@ -11,6 +11,7 @@ public:
     ~MeshShaderPipeline();
     
     void init(VkRenderPass renderPass);
+    void initWithDynamicRendering(VkFormat colorFormat, VkFormat depthFormat);
     void cleanup();
     
     VkPipeline getPipeline() const { return pipeline; }
@@ -20,6 +21,7 @@ public:
 
 private:
     void createPipeline(VkRenderPass renderPass);
+    void createPipelineWithDynamicRendering(VkFormat colorFormat, VkFormat depthFormat);
     
 private:
     VulkanContext* vulkanContext;

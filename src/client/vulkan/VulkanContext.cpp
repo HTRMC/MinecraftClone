@@ -228,11 +228,17 @@ void VulkanContext::createLogicalDevice() {
     timelineSemaphoreFeatures.timelineSemaphore = VK_TRUE;
     timelineSemaphoreFeatures.pNext = &meshShaderFeatures;
 
+    // Enable dynamic rendering features
+    VkPhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures{};
+    dynamicRenderingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+    dynamicRenderingFeatures.dynamicRendering = VK_TRUE;
+    dynamicRenderingFeatures.pNext = &timelineSemaphoreFeatures;
+
     // Enable maintenance4 features for LocalSizeId
     VkPhysicalDeviceMaintenance4Features maintenance4Features{};
     maintenance4Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES;
     maintenance4Features.maintenance4 = VK_TRUE;
-    maintenance4Features.pNext = &timelineSemaphoreFeatures;
+    maintenance4Features.pNext = &dynamicRenderingFeatures;
 
     VkPhysicalDeviceFeatures2 deviceFeatures2{};
     deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
