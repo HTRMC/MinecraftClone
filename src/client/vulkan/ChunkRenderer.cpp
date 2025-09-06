@@ -267,14 +267,14 @@ void ChunkRenderer::addFullChunk() {
         // Create a single test chunk at origin
         chunkData.chunkCoords.push_back(glm::ivec4(0, 0, 0, 0));
         
-        // Use white lighting for proper texture display
+        // Use diffuse lighting like working project for depth perception
         uint32_t faceColors[6][3] = {
-            {31, 31, 31},   // West: White
-            {31, 31, 31},   // East: White  
-            {31, 31, 31},   // North: White
-            {31, 31, 31},   // South: White
-            {31, 31, 31},   // Down: White
-            {31, 31, 31}    // Up: White
+            {22, 22, 22},   // West: Darker
+            {28, 28, 28},   // East: Slightly brighter  
+            {25, 25, 25},   // North: Medium
+            {25, 25, 25},   // South: Medium
+            {16, 16, 16},   // Down: Darkest
+            {31, 31, 31}    // Up: Brightest
         };
         
         // Add the 6 face models once (each face has different orientation)
