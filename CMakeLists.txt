@@ -157,12 +157,14 @@ target_compile_definitions(${CMAKE_PROJECT_NAME}Client PRIVATE
         CLIENT_BUILD
         VULKAN_HPP_ENABLE_STRINGIZE
         GLFW_INCLUDE_VULKAN
+        GLM_ENABLE_EXPERIMENTAL
 )
 
 target_compile_definitions(${CMAKE_PROJECT_NAME}Server PRIVATE
         SERVER_BUILD
         VULKAN_HPP_ENABLE_STRINGIZE
         GLFW_INCLUDE_VULKAN
+        GLM_ENABLE_EXPERIMENTAL
 )
 
 # Collect all shader files recursively from shaders/ with the supported extensions
