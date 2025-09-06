@@ -7,6 +7,7 @@
 #include <cstring>
 #include <vector>
 #include <algorithm>
+#include <functional>
 #include <GLFW/glfw3.h>
 
 #include "Logger.hpp"
@@ -326,19 +327,7 @@ BufferPool VulkanContext::createBufferPool(VkDeviceSize bufferSize) {
     
     for (uint32_t i = 0; i < BufferPool::BUFFER_COUNT; ++i) {
         pool.buffers[i] = createStorageBuffer(bufferSize);
-        
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        
-        if (vkCreateFence(device, &fenceInfo, nullptr, &pool.fences[i]) != VK_SUCCESS) {
-            for (uint32_t j = 0; j < i; ++j) {
-                destroyBuffer(pool.buffers[j]);
-                vkDestroyFence(device, pool.fences[j], nullptr);
-            }
-            destroyBuffer(pool.buffers[i]);
-            throw std::runtime_error("Failed to create fence for buffer pool!");
-        }
+        pool.inUse[i] = false;
     }
     
     Logger::info("Vulkan", "Created buffer pool with " + std::to_string(BufferPool::BUFFER_COUNT) + 
@@ -347,12 +336,16 @@ BufferPool VulkanContext::createBufferPool(VkDeviceSize bufferSize) {
 }
 
 void VulkanContext::destroyBufferPool(BufferPool& pool) {
+    vkDeviceWaitIdle(device);
+    
     for (uint32_t i = 0; i < BufferPool::BUFFER_COUNT; ++i) {
-        if (pool.fences[i] != VK_NULL_HANDLE) {
-            vkWaitForFences(device, 1, &pool.fences[i], VK_TRUE, UINT64_MAX);
-            vkDestroyFence(device, pool.fences[i], nullptr);
-            pool.fences[i] = VK_NULL_HANDLE;
+        for (auto& submission : pool.submissions[i]) {
+            if (submission.fence != VK_NULL_HANDLE) {
+                vkDestroyFence(device, submission.fence, nullptr);
+            }
         }
+        pool.submissions[i].clear();
+        
         destroyBuffer(pool.buffers[i]);
         pool.inUse[i] = false;
     }
@@ -361,31 +354,42 @@ void VulkanContext::destroyBufferPool(BufferPool& pool) {
 }
 
 BufferInfo* VulkanContext::acquireBuffer(BufferPool& pool) {
+    processBufferFences(pool);
+    
     for (uint32_t attempts = 0; attempts < BufferPool::BUFFER_COUNT; ++attempts) {
         uint32_t index = pool.currentIndex;
         pool.currentIndex = (pool.currentIndex + 1) % BufferPool::BUFFER_COUNT;
         
-        if (!pool.inUse[index]) {
-            VkResult result = vkGetFenceStatus(device, pool.fences[index]);
-            if (result == VK_SUCCESS) {
-                pool.inUse[index] = true;
-                vkResetFences(device, 1, &pool.fences[index]);
-                return &pool.buffers[index];
-            }
+        if (isBufferAvailable(pool, index)) {
+            pool.inUse[index] = true;
+            return &pool.buffers[index];
         }
     }
     
     uint32_t oldestIndex = 0;
     for (uint32_t i = 1; i < BufferPool::BUFFER_COUNT; ++i) {
-        if (vkGetFenceStatus(device, pool.fences[i]) == VK_SUCCESS) {
+        if (isBufferAvailable(pool, i)) {
             oldestIndex = i;
             break;
         }
     }
     
-    if (vkWaitForFences(device, 1, &pool.fences[oldestIndex], VK_TRUE, 1000000) == VK_SUCCESS) {
+    if (isBufferAvailable(pool, oldestIndex)) {
         pool.inUse[oldestIndex] = true;
-        vkResetFences(device, 1, &pool.fences[oldestIndex]);
+        return &pool.buffers[oldestIndex];
+    }
+    
+    Logger::warning("Vulkan", "No buffers available in pool, waiting for oldest submission");
+    if (!pool.submissions[oldestIndex].empty()) {
+        auto& oldestSubmission = pool.submissions[oldestIndex][0];
+        if (oldestSubmission.fence != VK_NULL_HANDLE) {
+            vkWaitForFences(device, 1, &oldestSubmission.fence, VK_TRUE, UINT64_MAX);
+            processBufferFences(pool);
+        }
+    }
+    
+    if (isBufferAvailable(pool, oldestIndex)) {
+        pool.inUse[oldestIndex] = true;
         return &pool.buffers[oldestIndex];
     }
     
@@ -396,6 +400,93 @@ void VulkanContext::releaseBuffer(BufferPool& pool, uint32_t bufferIndex) {
     if (bufferIndex >= BufferPool::BUFFER_COUNT) return;
     
     pool.inUse[bufferIndex] = false;
+}
+
+uint32_t VulkanContext::submitBufferOperation(BufferPool& pool, uint32_t bufferIndex, VkFence fence, 
+                                             uint64_t submissionId, std::function<void()> onComplete) {
+    if (bufferIndex >= BufferPool::BUFFER_COUNT) return UINT32_MAX;
+    
+    BufferSubmission submission;
+    submission.fence = fence;
+    submission.submissionId = submissionId;
+    submission.pending = true;
+    submission.onComplete = std::move(onComplete);
+    
+    pool.submissions[bufferIndex].push_back(submission);
+    pool.inUse[bufferIndex] = true;
+    
+    Logger::debug("Vulkan", "Submitted operation " + std::to_string(submissionId) + 
+                  " for buffer " + std::to_string(bufferIndex));
+    
+    return static_cast<uint32_t>(pool.submissions[bufferIndex].size() - 1);
+}
+
+void VulkanContext::processBufferFences(BufferPool& pool) {
+    for (uint32_t bufferIndex = 0; bufferIndex < BufferPool::BUFFER_COUNT; ++bufferIndex) {
+        auto& submissions = pool.submissions[bufferIndex];
+        
+        auto it = submissions.begin();
+        while (it != submissions.end()) {
+            if (it->pending && it->fence != VK_NULL_HANDLE) {
+                VkResult result = vkGetFenceStatus(device, it->fence);
+                if (result == VK_SUCCESS) {
+                    it->pending = false;
+                    
+                    if (it->onComplete) {
+                        it->onComplete();
+                    }
+                    
+                    vkDestroyFence(device, it->fence, nullptr);
+                    it = submissions.erase(it);
+                    
+                    Logger::debug("Vulkan", "Completed operation " + std::to_string(it->submissionId) + 
+                                 " for buffer " + std::to_string(bufferIndex));
+                } else if (result == VK_ERROR_DEVICE_LOST) {
+                    Logger::error("Vulkan", "Device lost while checking fence");
+                    break;
+                } else {
+                    ++it;
+                }
+            } else {
+                ++it;
+            }
+        }
+        
+        if (submissions.empty() && pool.inUse[bufferIndex]) {
+            pool.inUse[bufferIndex] = false;
+        }
+    }
+}
+
+bool VulkanContext::isBufferAvailable(BufferPool& pool, uint32_t bufferIndex) {
+    if (bufferIndex >= BufferPool::BUFFER_COUNT) return false;
+    
+    if (pool.submissions[bufferIndex].empty()) {
+        return !pool.inUse[bufferIndex];
+    }
+    
+    for (const auto& submission : pool.submissions[bufferIndex]) {
+        if (submission.pending) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+VkFence VulkanContext::createFence(bool signaled) {
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    if (signaled) {
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    }
+    
+    VkFence fence;
+    if (vkCreateFence(device, &fenceInfo, nullptr, &fence) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create fence!");
+    }
+    
+    return fence;
 }
 
 // ---------------- Queue Family Management ----------------

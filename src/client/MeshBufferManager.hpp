@@ -24,6 +24,9 @@ public:
     void updateChunkMesh(int32_t chunkX, int32_t chunkZ);
     void updateChunkLighting(int32_t chunkX, int32_t chunkZ);
     
+    uint64_t submitChunkToGPU(ChunkData* chunk, std::function<void()> onComplete = nullptr);
+    void processCompletedSubmissions();
+    
     ChunkBufferData* getChunkBuffers(int32_t chunkX, int32_t chunkZ);
     void releaseChunkBuffers(int32_t chunkX, int32_t chunkZ);
     

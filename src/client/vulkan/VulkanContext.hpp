@@ -13,14 +13,28 @@ struct BufferInfo {
     VkDeviceSize size = 0;
 };
 
+struct BufferSubmission {
+    VkFence fence = VK_NULL_HANDLE;
+    uint64_t submissionId = 0;
+    bool pending = false;
+    std::function<void()> onComplete = nullptr;
+};
+
 struct BufferPool {
     static constexpr uint32_t BUFFER_COUNT = 3;
+    static constexpr uint32_t MAX_SUBMISSIONS_PER_BUFFER = 8;
     
     BufferInfo buffers[BUFFER_COUNT];
-    VkFence fences[BUFFER_COUNT];
+    std::vector<BufferSubmission> submissions[BUFFER_COUNT];
     bool inUse[BUFFER_COUNT] = {false, false, false};
     uint32_t currentIndex = 0;
     VkDeviceSize bufferSize = 0;
+    
+    BufferPool() {
+        for (int i = 0; i < BUFFER_COUNT; ++i) {
+            submissions[i].reserve(MAX_SUBMISSIONS_PER_BUFFER);
+        }
+    }
 };
 
 struct QueueFamilyIndices {
@@ -69,6 +83,12 @@ public:
     void destroyBufferPool(BufferPool& pool);
     BufferInfo* acquireBuffer(BufferPool& pool);
     void releaseBuffer(BufferPool& pool, uint32_t bufferIndex);
+    
+    uint32_t submitBufferOperation(BufferPool& pool, uint32_t bufferIndex, VkFence fence, 
+                                  uint64_t submissionId, std::function<void()> onComplete = nullptr);
+    void processBufferFences(BufferPool& pool);
+    bool isBufferAvailable(BufferPool& pool, uint32_t bufferIndex);
+    VkFence createFence(bool signaled = false);
     
     BufferInfo createStagingBuffer(VkDeviceSize size);
     VkCommandBuffer beginSingleTimeCommands(bool useTransferQueue = true);

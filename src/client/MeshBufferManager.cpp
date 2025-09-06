@@ -153,6 +153,10 @@ void MeshBufferManager::waitForAllJobs() {
 void MeshBufferManager::writeChunkToBuffers(ChunkData* chunk) {
     if (!chunk || chunk->faces.vertices.empty()) return;
     
+    vulkanContext->processBufferFences(faceBufferPool);
+    vulkanContext->processBufferFences(modelBufferPool);
+    vulkanContext->processBufferFences(lightBufferPool);
+    
     BufferInfo* faceBuffer = vulkanContext->acquireBuffer(faceBufferPool);
     BufferInfo* modelBuffer = vulkanContext->acquireBuffer(modelBufferPool);
     BufferInfo* lightBuffer = vulkanContext->acquireBuffer(lightBufferPool);
@@ -204,6 +208,47 @@ void MeshBufferManager::writeChunkToBuffers(ChunkData* chunk) {
     
     Logger::debug("MeshBufferManager", "Written chunk (" + std::to_string(chunk->x) + 
                   ", " + std::to_string(chunk->z) + ") data to GPU buffers");
+}
+
+uint64_t MeshBufferManager::submitChunkToGPU(ChunkData* chunk, std::function<void()> onComplete) {
+    if (!chunk || chunk->faces.vertices.empty()) return 0;
+    
+    static std::atomic<uint64_t> submissionCounter{1};
+    uint64_t submissionId = submissionCounter.fetch_add(1);
+    
+    writeChunkToBuffers(chunk);
+    
+    uint64_t chunkKey = getChunkKey(chunk->x, chunk->z);
+    auto& bufferData = chunkBuffers[chunkKey];
+    
+    if (bufferData.faceBuffer) {
+        VkFence fence = vulkanContext->createFence();
+        
+        uint32_t faceBufferIndex = 0;
+        for (uint32_t i = 0; i < BufferPool::BUFFER_COUNT; ++i) {
+            if (&faceBufferPool.buffers[i] == bufferData.faceBuffer) {
+                faceBufferIndex = i;
+                break;
+            }
+        }
+        
+        vulkanContext->submitBufferOperation(faceBufferPool, faceBufferIndex, fence, submissionId, 
+            [this, chunkKey, onComplete]() {
+                Logger::debug("MeshBufferManager", "Chunk buffer operation completed");
+                if (onComplete) onComplete();
+            });
+        
+        Logger::info("MeshBufferManager", "Submitted chunk (" + std::to_string(chunk->x) + 
+                     ", " + std::to_string(chunk->z) + ") to GPU with fence tracking");
+    }
+    
+    return submissionId;
+}
+
+void MeshBufferManager::processCompletedSubmissions() {
+    vulkanContext->processBufferFences(faceBufferPool);
+    vulkanContext->processBufferFences(modelBufferPool);
+    vulkanContext->processBufferFences(lightBufferPool);
 }
 
 uint64_t MeshBufferManager::getChunkKey(int32_t x, int32_t z) const {

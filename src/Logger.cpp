@@ -48,7 +48,7 @@ void Logger::info(const std::string& subsystem, const std::string& message) {
     log(LogLevel::INFO, subsystem, message);
 }
 
-void Logger::warn(const std::string& subsystem, const std::string& message) {
+void Logger::warning(const std::string& subsystem, const std::string& message) {
     log(LogLevel::WARNING, subsystem, message);
 }
 
