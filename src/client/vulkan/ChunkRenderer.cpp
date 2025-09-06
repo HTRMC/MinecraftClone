@@ -45,6 +45,8 @@ void ChunkRenderer::cleanup() {
     destroyBuffer(modelBuffer);
     destroyBuffer(lightBuffer);
     destroyBuffer(chunkCoordBuffer);
+    destroyBuffer(indirectDrawBuffer);
+    destroyBuffer(indirectCountBuffer);
     
     initialized = false;
 }
@@ -74,15 +76,18 @@ void ChunkRenderer::render(VkCommandBuffer commandBuffer, const UniformBufferObj
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                            pipeline->getPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
     
-    // Dispatch mesh shader workgroups
-    // Each workgroup processes 32 faces, so we need (faceCount + 31) / 32 workgroups
+    // Dispatch mesh shader workgroups using indirect count
     uint32_t faceCount = static_cast<uint32_t>(currentRenderData.faces.size());
     uint32_t workgroupCount = (faceCount + 31) / 32;
     
     Logger::debug("ChunkRenderer", "Rendering " + std::to_string(faceCount) + " faces with " + 
-                  std::to_string(workgroupCount) + " workgroups");
+                  std::to_string(workgroupCount) + " workgroups using indirect count");
     
-    vulkanContext->vkCmdDrawMeshTasksEXT(commandBuffer, workgroupCount, 1, 1);
+    vulkanContext->vkCmdDrawMeshTasksIndirectCountEXT(commandBuffer, 
+                                                     indirectDrawBuffer.buffer, 0,  // indirect buffer and offset
+                                                     indirectCountBuffer.buffer, 0,  // count buffer and offset
+                                                     1,                              // max draw count
+                                                     sizeof(VkDrawMeshTasksIndirectCommandEXT)); // stride
 }
 
 void ChunkRenderer::renderParallel(std::vector<VkCommandBuffer>& commandBuffers, const UniformBufferObject& ubo, bool cameraChanged) {
@@ -118,11 +123,15 @@ void ChunkRenderer::renderParallel(std::vector<VkCommandBuffer>& commandBuffers,
             uint32_t facesToRender = endFace - startFace;
             uint32_t workgroupCount = (facesToRender + 31) / 32;
             
-            // Use push constants to specify face range if available, otherwise render all
-            vulkanContext->vkCmdDrawMeshTasksEXT(cmdBuffer, workgroupCount, 1, 1);
+            // Use indirect count draw for parallel rendering too
+            vulkanContext->vkCmdDrawMeshTasksIndirectCountEXT(cmdBuffer, 
+                                                             indirectDrawBuffer.buffer, 0,  // indirect buffer and offset
+                                                             indirectCountBuffer.buffer, 0,  // count buffer and offset
+                                                             1,                              // max draw count
+                                                             sizeof(VkDrawMeshTasksIndirectCommandEXT)); // stride
             
             Logger::debug("ChunkRenderer", "Command buffer " + std::to_string(i) + " rendering " + 
-                          std::to_string(facesToRender) + " faces with " + std::to_string(workgroupCount) + " workgroups");
+                          std::to_string(facesToRender) + " faces with " + std::to_string(workgroupCount) + " workgroups using indirect count");
         }
     }
     
@@ -261,6 +270,14 @@ void ChunkRenderer::createBuffers() {
     modelBuffer = createStorageBuffer(sizeof(ModelData));
     lightBuffer = createStorageBuffer(sizeof(LightData));
     chunkCoordBuffer = createStorageBuffer(sizeof(glm::ivec4));
+    
+    // Create indirect draw and count buffers with INDIRECT_BUFFER usage
+    indirectDrawBuffer = vulkanContext->createBuffer(sizeof(VkDrawMeshTasksIndirectCommandEXT), 
+                                                    VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 
+                                                    VMA_MEMORY_USAGE_CPU_TO_GPU);
+    indirectCountBuffer = vulkanContext->createBuffer(sizeof(uint32_t), 
+                                                     VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 
+                                                     VMA_MEMORY_USAGE_CPU_TO_GPU);
 }
 
 void ChunkRenderer::updateBuffers() {
@@ -298,6 +315,21 @@ void ChunkRenderer::updateBuffers() {
     } else {
         updateStorageBuffer(chunkCoordBuffer, currentRenderData.chunkCoords.data(), chunkSize);
     }
+    
+    // Update indirect draw command
+    uint32_t faceCount = static_cast<uint32_t>(currentRenderData.faces.size());
+    uint32_t workgroupCount = (faceCount + 31) / 32; // 32 faces per workgroup
+    
+    VkDrawMeshTasksIndirectCommandEXT indirectCommand = {};
+    indirectCommand.groupCountX = workgroupCount;
+    indirectCommand.groupCountY = 1;
+    indirectCommand.groupCountZ = 1;
+    
+    updateStorageBuffer(indirectDrawBuffer, &indirectCommand, sizeof(VkDrawMeshTasksIndirectCommandEXT));
+    
+    // Update indirect count (number of draw commands, which is 1 in our case)
+    uint32_t drawCount = (faceCount > 0) ? 1 : 0;
+    updateStorageBuffer(indirectCountBuffer, &drawCount, sizeof(uint32_t));
     
     // Update descriptor set if any buffers were recreated (size changed)
     descriptorManager->updateDescriptorSet(descriptorSet, uboBuffer.buffer,

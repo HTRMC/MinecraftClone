@@ -72,6 +72,8 @@ private:
     BufferInfo modelBuffer;
     BufferInfo lightBuffer;
     BufferInfo chunkCoordBuffer;
+    BufferInfo indirectDrawBuffer;
+    BufferInfo indirectCountBuffer;
     
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
     bool initialized = false;

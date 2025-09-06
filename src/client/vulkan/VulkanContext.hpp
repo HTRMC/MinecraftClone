@@ -149,7 +149,7 @@ public:
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
     
     // Mesh shader extension function
-    PFN_vkCmdDrawMeshTasksEXT vkCmdDrawMeshTasksEXT = nullptr;
+    PFN_vkCmdDrawMeshTasksIndirectCountEXT vkCmdDrawMeshTasksIndirectCountEXT = nullptr;
 
 private:
     void createInstance();

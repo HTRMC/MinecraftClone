@@ -705,11 +705,11 @@ void VulkanContext::copyBufferAsync(const TransferOperation& transfer) {
 }
 
 void VulkanContext::loadExtensionFunctions() {
-    // Load mesh shader extension functions
-    vkCmdDrawMeshTasksEXT = (PFN_vkCmdDrawMeshTasksEXT)vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT");
+    // Load mesh shader extension function
+    vkCmdDrawMeshTasksIndirectCountEXT = (PFN_vkCmdDrawMeshTasksIndirectCountEXT)vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectCountEXT");
     
-    if (!vkCmdDrawMeshTasksEXT) {
-        throw std::runtime_error("Failed to load vkCmdDrawMeshTasksEXT function!");
+    if (!vkCmdDrawMeshTasksIndirectCountEXT) {
+        throw std::runtime_error("Failed to load vkCmdDrawMeshTasksIndirectCountEXT function!");
     }
     
     Logger::info("VulkanContext", "Loaded mesh shader extension functions");
