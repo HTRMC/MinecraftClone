@@ -6,30 +6,41 @@
 #include <glm/gtx/transform.hpp>
 
 BlockModel BlockModelLoader::loadModelWithInheritance(const std::string& modelPath) {
+    return loadModelWithInheritanceInternal(modelPath, true);
+}
+
+BlockModel BlockModelLoader::loadModelWithInheritanceInternal(const std::string& modelPath, bool isTopLevel) {
     BlockModel model = loadModel(modelPath);
     
     // If this model has a parent, load and merge it
     if (model.parent.has_value()) {
         std::string parentPath = resolveModelPath(model.parent.value());
         try {
-            BlockModel parentModel = loadModelWithInheritance(parentPath); // Recursive call for nested inheritance
+            BlockModel parentModel = loadModelWithInheritanceInternal(parentPath, false); // Recursive call for nested inheritance
             model = mergeWithParent(model, parentModel);
         } catch (const std::exception& e) {
             Logger::warning("BlockModelLoader", "Failed to load parent model '" + model.parent.value() + "': " + std::string(e.what()));
         }
     }
     
-    // Resolve all texture references after inheritance chain is complete
-    std::unordered_map<std::string, std::string> resolvedTextures;
-    for (const auto& [key, value] : model.textures) {
-        resolvedTextures[key] = resolveTextureReference(value, model.textures);
-    }
-    model.textures = resolvedTextures;
-    
-    // Resolve texture references in element faces
-    for (auto& element : model.elements) {
-        for (auto& [faceName, face] : element.faces) {
-            face.texture = resolveTextureReference(face.texture, model.textures);
+    // Only resolve texture references at the top level, after entire inheritance chain is complete
+    if (isTopLevel) {
+        Logger::debug("BlockModelLoader", "Final textures before resolution: " + std::to_string(model.textures.size()));
+        for (const auto& [key, value] : model.textures) {
+            Logger::debug("BlockModelLoader", "  " + key + " = " + value);
+        }
+        
+        std::unordered_map<std::string, std::string> resolvedTextures;
+        for (const auto& [key, value] : model.textures) {
+            resolvedTextures[key] = resolveTextureReference(value, model.textures);
+        }
+        model.textures = resolvedTextures;
+        
+        // Resolve texture references in element faces
+        for (auto& element : model.elements) {
+            for (auto& [faceName, face] : element.faces) {
+                face.texture = resolveTextureReference(face.texture, model.textures);
+            }
         }
     }
     
