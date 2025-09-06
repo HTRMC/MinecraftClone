@@ -69,6 +69,9 @@ void ChunkRenderer::render(VkCommandBuffer commandBuffer, const UniformBufferObj
     uint32_t faceCount = static_cast<uint32_t>(currentRenderData.faces.size());
     uint32_t workgroupCount = (faceCount + 31) / 32;
     
+    Logger::debug("ChunkRenderer", "Rendering " + std::to_string(faceCount) + " faces with " + 
+                  std::to_string(workgroupCount) + " workgroups");
+    
     vulkanContext->vkCmdDrawMeshTasksEXT(commandBuffer, workgroupCount, 1, 1);
 }
 
@@ -78,55 +81,123 @@ void ChunkRenderer::addTestCube() {
     // Create a single test chunk at origin
     testData.chunkCoords.push_back(glm::ivec4(0, 0, 0, 0));
     
-    // Create test model data for a simple quad facing forward (Z+)
-    ModelData quadModel = {};
-    // Front face vertices (CCW from front view)
-    quadModel.vertices[0] = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f); // Bottom-left
-    quadModel.vertices[1] = glm::vec4(1.0f, 0.0f, 1.0f, 1.0f); // Bottom-right
-    quadModel.vertices[2] = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f); // Top-right
-    quadModel.vertices[3] = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f); // Top-left
+    // Create cube faces using the proven approach from the working project
+    // Cube bounds: min = (-0.5, -0.5, -0.5), max = (0.5, 0.5, 0.5) centered at origin
+    constexpr glm::vec3 min(-0.5f, -0.5f, -0.5f);
+    constexpr glm::vec3 max(0.5f, 0.5f, 0.5f);
     
-    // UV coordinates
-    quadModel.uvCoords[0] = glm::vec2(0.0f, 1.0f);
-    quadModel.uvCoords[1] = glm::vec2(1.0f, 1.0f);
-    quadModel.uvCoords[2] = glm::vec2(1.0f, 0.0f);
-    quadModel.uvCoords[3] = glm::vec2(0.0f, 0.0f);
+    // Define 8 corners of the cube
+    const glm::vec3 corner000(min.x, min.y, min.z);  // -X, -Y, -Z
+    const glm::vec3 corner001(min.x, min.y, max.z);  // -X, -Y, +Z
+    const glm::vec3 corner010(min.x, max.y, min.z);  // -X, +Y, -Z
+    const glm::vec3 corner011(min.x, max.y, max.z);  // -X, +Y, +Z
+    const glm::vec3 corner100(max.x, min.y, min.z);  // +X, -Y, -Z
+    const glm::vec3 corner101(max.x, min.y, max.z);  // +X, -Y, +Z
+    const glm::vec3 corner110(max.x, max.y, min.z);  // +X, +Y, -Z
+    const glm::vec3 corner111(max.x, max.y, max.z);  // +X, +Y, +Z
     
-    // Face normal pointing forward
-    quadModel.faceNormal = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+    // Define faces in order: Left, Right, Front, Back, Bottom, Top
+    // All faces use counter-clockwise winding when viewed from outside
+    struct FaceInfo {
+        glm::vec3 normal;
+        glm::vec4 vertices[4];
+        int textureSlot;
+    };
     
-    testData.models.push_back(quadModel);
+    std::vector<FaceInfo> faces = {
+        // Left face (-X) - Counter-clockwise when viewed from outside
+        {
+            glm::vec3(-1, 0, 0),
+            { glm::vec4(corner000, 1.0f), glm::vec4(corner010, 1.0f), glm::vec4(corner011, 1.0f), glm::vec4(corner001, 1.0f) },
+            0
+        },
+        // Right face (+X) - Counter-clockwise when viewed from outside  
+        {
+            glm::vec3(1, 0, 0),
+            { glm::vec4(corner101, 1.0f), glm::vec4(corner111, 1.0f), glm::vec4(corner110, 1.0f), glm::vec4(corner100, 1.0f) },
+            1
+        },
+        // Front face (-Y) - Counter-clockwise when viewed from outside
+        {
+            glm::vec3(0, -1, 0),
+            { glm::vec4(corner100, 1.0f), glm::vec4(corner000, 1.0f), glm::vec4(corner001, 1.0f), glm::vec4(corner101, 1.0f) },
+            2
+        },
+        // Back face (+Y) - Counter-clockwise when viewed from outside
+        {
+            glm::vec3(0, 1, 0),
+            { glm::vec4(corner010, 1.0f), glm::vec4(corner110, 1.0f), glm::vec4(corner111, 1.0f), glm::vec4(corner011, 1.0f) },
+            3
+        },
+        // Bottom face (-Z) - Counter-clockwise when viewed from outside
+        {
+            glm::vec3(0, 0, -1),
+            { glm::vec4(corner000, 1.0f), glm::vec4(corner100, 1.0f), glm::vec4(corner110, 1.0f), glm::vec4(corner010, 1.0f) },
+            4
+        },
+        // Top face (+Z) - Counter-clockwise when viewed from outside
+        {
+            glm::vec3(0, 0, 1),
+            { glm::vec4(corner001, 1.0f), glm::vec4(corner011, 1.0f), glm::vec4(corner111, 1.0f), glm::vec4(corner101, 1.0f) },
+            5
+        }
+    };
     
-    // Create test light data with bright white light
-    LightData lightData = {};
-    // Pack light data: ao(31) + skyLight(31) + blockLight(0) + r(31) + g(31) + b(31)
-    uint32_t ao = 31;
-    uint32_t skyLight = 31;
-    uint32_t blockLight = 0;
-    uint32_t r = 31, g = 31, b = 31;
+    // Define different colors for each face for debugging
+    uint32_t faceColors[6][3] = {
+        {31, 0, 0},   // Left: Red
+        {0, 31, 0},   // Right: Green  
+        {0, 0, 31},   // Front: Blue
+        {31, 31, 0},  // Back: Yellow
+        {31, 0, 31},  // Bottom: Magenta
+        {0, 31, 31}   // Top: Cyan
+    };
     
-    uint32_t packedLight = ao | (skyLight << 5) | (blockLight << 10) | (r << 15) | (g << 20) | (b << 25);
-    
-    lightData.vertex0 = packedLight;
-    lightData.vertex1 = packedLight;
-    lightData.vertex2 = packedLight;
-    lightData.vertex3 = packedLight;
-    
-    testData.lights.push_back(lightData);
-    
-    // Create test face data
-    FaceData face = {};
-    // Pack position: block at (0, 0, 0) in chunk (ground level)
-    face.positionAndFlags = (0) | (0 << 5) | (0 << 10) | (0 << 16); // lightIndex = 0
-    face.blockAndQuad = (0) | (0 << 16); // quadIndex = 0, textureIndex = 0
-    face.chunkIndex = 0;
-    
-    testData.faces.push_back(face);
+    // Create model data for each face (6 quads)
+    for (size_t i = 0; i < faces.size(); ++i) {
+        // Create model data
+        ModelData model = {};
+        for (int v = 0; v < 4; v++) {
+            model.vertices[v] = faces[i].vertices[v];
+        }
+        // Standard UV coordinates
+        model.uvCoords[0] = glm::vec2(0.0f, 0.0f);
+        model.uvCoords[1] = glm::vec2(1.0f, 0.0f);
+        model.uvCoords[2] = glm::vec2(1.0f, 1.0f);
+        model.uvCoords[3] = glm::vec2(0.0f, 1.0f);
+        model.faceNormal = glm::vec4(faces[i].normal, 0.0f);
+        testData.models.push_back(model);
+        
+        // Create lighting data for this face with different colors
+        uint32_t ao = 31;
+        uint32_t skyLight = 31;
+        uint32_t blockLight = 0;
+        uint32_t r = faceColors[i][0];
+        uint32_t g = faceColors[i][1]; 
+        uint32_t b = faceColors[i][2];
+        uint32_t packedLight = ao | (skyLight << 5) | (blockLight << 10) | (r << 15) | (g << 20) | (b << 25);
+        
+        LightData lightData = {};
+        lightData.vertex0 = packedLight;
+        lightData.vertex1 = packedLight;
+        lightData.vertex2 = packedLight;
+        lightData.vertex3 = packedLight;
+        testData.lights.push_back(lightData);
+        
+        // Create face data referencing this model and lighting
+        FaceData face = {};
+        // Pack position: block at (0, 0, 0) in chunk, lightIndex = i
+        face.positionAndFlags = (0) | (0 << 5) | (0 << 10) | (static_cast<uint32_t>(i) << 16);
+        face.blockAndQuad = (static_cast<uint32_t>(faces[i].textureSlot)) | (static_cast<uint32_t>(i) << 16);
+        face.chunkIndex = 0;
+        testData.faces.push_back(face);
+    }
     
     // Update render data
     updateRenderData(testData);
     
-    Logger::info("ChunkRenderer", "Added test cube with 1 face");
+    Logger::info("ChunkRenderer", "Added test cube with " + std::to_string(testData.faces.size()) + " faces, " +
+                 std::to_string(testData.models.size()) + " models, " + std::to_string(testData.lights.size()) + " lights");
 }
 
 void ChunkRenderer::createBuffers() {

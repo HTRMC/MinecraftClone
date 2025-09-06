@@ -33,12 +33,17 @@ private:
     void createSurface();
     void createSwapChain();
     void createImageViews();
+    void createDepthResources();
     void createRenderPass();
     void createFramebuffers();
     void createCommandBuffers();
     
     void recreateSwapChain();
     void cleanupSwapChain();
+    
+    VkFormat findDepthFormat();
+    VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+    bool hasStencilComponent(VkFormat format);
     
     void recordStaticCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
     void updateDynamicCommands(VkCommandBuffer commandBuffer);
@@ -62,6 +67,10 @@ private:
     VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;
     std::vector<VkFramebuffer> swapChainFramebuffers;
+    
+    VkImage depthImage = VK_NULL_HANDLE;
+    VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
+    VkImageView depthImageView = VK_NULL_HANDLE;
     
     VkRenderPass renderPass = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;

@@ -24,7 +24,7 @@ void MinecraftClient::run() {
     renderer = std::make_unique<Renderer>(vulkan.get(), window.get());
     renderer->init();
 
-    // Initialize camera at a good starting position
+    // Initialize camera at origin
     camera = std::make_unique<Camera>(glm::vec3(0.0f, 0.0f, 0.0f));
     renderer->setCamera(camera.get());
 
@@ -78,24 +78,13 @@ std::string MinecraftClient::getWindowTitle() const {
 }
 
 void MinecraftClient::processInput(float deltaTime) {
-    // Process WASD movement
-    if (window->isKeyPressed(GLFW_KEY_W)) {
-        camera->processKeyboard(GLFW_KEY_W, deltaTime);
-    }
-    if (window->isKeyPressed(GLFW_KEY_S)) {
-        camera->processKeyboard(GLFW_KEY_S, deltaTime);
-    }
-    if (window->isKeyPressed(GLFW_KEY_A)) {
-        camera->processKeyboard(GLFW_KEY_A, deltaTime);
-    }
-    if (window->isKeyPressed(GLFW_KEY_D)) {
-        camera->processKeyboard(GLFW_KEY_D, deltaTime);
-    }
+    // Use the new camera interface that handles all input internally
+    camera->processKeyboard(window->getHandle(), deltaTime);
     
     // Process mouse movement
     double xDelta, yDelta;
     window->getMouseDelta(xDelta, yDelta);
     if (xDelta != 0.0 || yDelta != 0.0) {
-        camera->processMouseMovement(static_cast<float>(xDelta), static_cast<float>(yDelta));
+        camera->processMouseMovement(xDelta, yDelta);
     }
 }
