@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <GLFW/glfw3.h>
 
+#include "Logger.hpp"
+
 // ================= Helper Functions =================
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -138,7 +140,7 @@ void VulkanContext::pickPhysicalDevice() {
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(d, &props);
         physicalDevice = d;
-        std::cout << "Selected GPU: " << props.deviceName << std::endl;
+        Logger::info("Main thread", std::string("Selected GPU: ") + props.deviceName);
         break;
     }
 

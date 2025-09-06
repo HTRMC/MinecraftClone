@@ -13,6 +13,8 @@ MinecraftClient::MinecraftClient()
       fps(60) {}
 
 void MinecraftClient::run() {
+    Logger::init();
+
     window = std::make_unique<Window>(this);
     window->create(854, 480);
 
@@ -29,7 +31,7 @@ void MinecraftClient::run() {
         window->updateTitle();
     }
 
-    Logger::info("Render thread", "Stopping!");
+    Logger::info("Main thread", "Stopping!");
 }
 
 void MinecraftClient::setCurrentServerName(const std::string& name) {
