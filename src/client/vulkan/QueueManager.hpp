@@ -51,6 +51,12 @@ public:
     uint64_t submitMeshDataTransfer(BufferInfo* stagingBuffer, BufferInfo* deviceBuffer, 
                                    VkDeviceSize size, std::function<void()> onComplete = nullptr);
     
+    // New parallel command recording methods
+    std::vector<uint64_t> submitGraphicsParallel(const std::vector<GraphicsCommand>& commands);
+    uint64_t submitGraphicsWithDependency(const GraphicsCommand& command, uint64_t waitForId);
+    void submitChunkRenderCommands(const std::vector<GraphicsCommand>& commands, 
+                                  std::function<void()> onComplete = nullptr);
+    
     void waitForTransfer(uint64_t transferId);
     void waitForGraphics(uint64_t commandId);
     void waitForAll();
@@ -66,6 +72,10 @@ public:
 private:
     void createSynchronizationObjects();
     void destroySynchronizationObjects();
+    void createCommandPools();
+    void destroyCommandPools();
+    VkCommandBuffer getAvailableCommandBuffer(uint32_t& poolIndex);
+    void returnCommandBuffer(uint32_t poolIndex, VkCommandBuffer commandBuffer);
     VkSemaphore getAvailableSemaphore();
     VkFence getAvailableFence();
     void returnSemaphore(VkSemaphore semaphore);
@@ -83,7 +93,15 @@ private:
     std::mutex transferMutex;
     std::mutex graphicsMutex;
     
+    // Parallel command recording support
+    std::vector<VkCommandPool> commandPools;
+    std::vector<std::vector<VkCommandBuffer>> commandBufferPools;
+    std::vector<std::unique_ptr<std::mutex>> poolMutexes;
+    std::atomic<uint32_t> nextPoolIndex{0};
+    
     bool initialized = false;
-    static constexpr size_t SEMAPHORE_POOL_SIZE = 16;
-    static constexpr size_t FENCE_POOL_SIZE = 16;
+    static constexpr size_t SEMAPHORE_POOL_SIZE = 32;
+    static constexpr size_t FENCE_POOL_SIZE = 32;
+    static constexpr size_t COMMAND_POOL_COUNT = 4;
+    static constexpr size_t BUFFERS_PER_POOL = 8;
 };

@@ -80,6 +80,7 @@ public:
     
     std::future<void> submitChunkGenerationParallel(ChunkData* chunk);
     void submitChunkOperationsParallel(ChunkData* chunk, std::function<void()> onComplete = nullptr);
+    void submitMultipleChunksParallel(std::vector<ChunkData*> chunks, std::function<void()> onComplete = nullptr);
     
     size_t getQueueSize() const;
     size_t getActiveJobs() const;

@@ -128,6 +128,7 @@ public:
     VkPhysicalDevice getPhysicalDevice() const { return physicalDevice; }
     VkInstance getInstance() const { return instance; }
     const CommandPool& getGraphicsCommandPool() const { return graphicsCommandPool; }
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
     
     // Mesh shader extension function
     PFN_vkCmdDrawMeshTasksEXT vkCmdDrawMeshTasksEXT = nullptr;
@@ -141,7 +142,6 @@ private:
     void createCommandPools();
     void loadExtensionFunctions();
     
-    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
     bool checkValidationLayerSupport();
     std::vector<const char*> getRequiredExtensions();
 

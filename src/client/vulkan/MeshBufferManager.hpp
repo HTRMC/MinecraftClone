@@ -1,5 +1,6 @@
 #pragma once
 #include "VulkanContext.hpp"
+#include "QueueManager.hpp"
 #include "JobSystem.hpp"
 #include <unordered_map>
 #include <memory>
@@ -14,7 +15,7 @@ struct ChunkBufferData {
 
 class MeshBufferManager {
 public:
-    MeshBufferManager(VulkanContext* vulkanContext, JobSystem* jobSystem);
+    MeshBufferManager(VulkanContext* vulkanContext, JobSystem* jobSystem, QueueManager* queueManager);
     ~MeshBufferManager();
     
     void init(VkDeviceSize faceBufferSize, VkDeviceSize modelBufferSize, VkDeviceSize lightBufferSize);
@@ -25,6 +26,7 @@ public:
     void updateChunkLighting(int32_t chunkX, int32_t chunkZ);
     
     uint64_t submitChunkToGPU(ChunkData* chunk, std::function<void()> onComplete = nullptr);
+    void submitChunksToGPUParallel(std::vector<ChunkData*> chunks, std::function<void()> onComplete = nullptr);
     void processCompletedSubmissions();
     
     ChunkBufferData* getChunkBuffers(int32_t chunkX, int32_t chunkZ);
@@ -40,6 +42,7 @@ private:
 private:
     VulkanContext* vulkanContext;
     JobSystem* jobSystem;
+    QueueManager* queueManager;
     
     BufferPool faceBufferPool;
     BufferPool modelBufferPool;

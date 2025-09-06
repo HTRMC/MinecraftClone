@@ -85,6 +85,51 @@ void ChunkRenderer::render(VkCommandBuffer commandBuffer, const UniformBufferObj
     vulkanContext->vkCmdDrawMeshTasksEXT(commandBuffer, workgroupCount, 1, 1);
 }
 
+void ChunkRenderer::renderParallel(std::vector<VkCommandBuffer>& commandBuffers, const UniformBufferObject& ubo, bool cameraChanged) {
+    if (!initialized || currentRenderData.faces.empty() || commandBuffers.empty()) return;
+    
+    // Only update UBO if camera changed
+    if (cameraChanged) {
+        descriptorManager->updateUniformBuffer(uboBuffer, ubo);
+    }
+    
+    // Update buffers if data changed
+    if (dataUpdated.exchange(false)) {
+        std::lock_guard<std::mutex> lock(renderDataMutex);
+        updateBuffers();
+    }
+    
+    uint32_t faceCount = static_cast<uint32_t>(currentRenderData.faces.size());
+    uint32_t facesPerBuffer = (faceCount + commandBuffers.size() - 1) / commandBuffers.size();
+    
+    for (size_t i = 0; i < commandBuffers.size(); ++i) {
+        VkCommandBuffer cmdBuffer = commandBuffers[i];
+        
+        // Bind pipeline and descriptor set
+        pipeline->bind(cmdBuffer);
+        vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                               pipeline->getPipelineLayout(), 0, 1, &descriptorSet, 0, nullptr);
+        
+        // Calculate workgroup range for this command buffer
+        uint32_t startFace = static_cast<uint32_t>(i * facesPerBuffer);
+        uint32_t endFace = std::min(startFace + facesPerBuffer, faceCount);
+        
+        if (startFace < endFace) {
+            uint32_t facesToRender = endFace - startFace;
+            uint32_t workgroupCount = (facesToRender + 31) / 32;
+            
+            // Use push constants to specify face range if available, otherwise render all
+            vulkanContext->vkCmdDrawMeshTasksEXT(cmdBuffer, workgroupCount, 1, 1);
+            
+            Logger::debug("ChunkRenderer", "Command buffer " + std::to_string(i) + " rendering " + 
+                          std::to_string(facesToRender) + " faces with " + std::to_string(workgroupCount) + " workgroups");
+        }
+    }
+    
+    Logger::debug("ChunkRenderer", "Parallel rendering with " + std::to_string(commandBuffers.size()) + 
+                  " command buffers for " + std::to_string(faceCount) + " total faces");
+}
+
 void ChunkRenderer::addTestCube() {
     RenderData testData;
     

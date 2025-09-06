@@ -38,6 +38,7 @@ public:
     // Thread-safe methods for updating render data
     void updateRenderData(const RenderData& newData);
     void render(VkCommandBuffer commandBuffer, const UniformBufferObject& ubo, bool cameraChanged = false);
+    void renderParallel(std::vector<VkCommandBuffer>& commandBuffers, const UniformBufferObject& ubo, bool cameraChanged = false);
     bool hasDataChanged() const { return dataUpdated.load(); }
     
     // Add test data for initial rendering

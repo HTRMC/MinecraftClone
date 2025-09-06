@@ -1,5 +1,6 @@
 #include "QueueManager.hpp"
 #include "Logger.hpp"
+#include <thread>
 
 QueueManager::QueueManager(VulkanContext* vulkanContext) : vulkanContext(vulkanContext) {
 }
@@ -12,16 +13,19 @@ void QueueManager::init() {
     if (initialized) return;
     
     createSynchronizationObjects();
+    createCommandPools();
     initialized = true;
     
     Logger::info("QueueManager", "Initialized with " + std::to_string(SEMAPHORE_POOL_SIZE) + 
-                 " semaphores and " + std::to_string(FENCE_POOL_SIZE) + " fences");
+                 " semaphores, " + std::to_string(FENCE_POOL_SIZE) + " fences, and " + 
+                 std::to_string(COMMAND_POOL_COUNT) + " command pools");
 }
 
 void QueueManager::cleanup() {
     if (!initialized) return;
     
     waitForAll();
+    destroyCommandPools();
     destroySynchronizationObjects();
     
     pendingTransfers.clear();
@@ -93,6 +97,129 @@ uint64_t QueueManager::submitMeshDataTransfer(BufferInfo* stagingBuffer, BufferI
     transfer.dstOffset = 0;
     
     return submitTransfer(transfer, std::move(onComplete));
+}
+
+std::vector<uint64_t> QueueManager::submitGraphicsParallel(const std::vector<GraphicsCommand>& commands) {
+    std::vector<uint64_t> commandIds;
+    commandIds.reserve(commands.size());
+    
+    std::vector<VkCommandBuffer> cmdBuffers;
+    std::vector<uint32_t> poolIndices;
+    cmdBuffers.reserve(commands.size());
+    poolIndices.reserve(commands.size());
+    
+    // Acquire command buffers from different pools for parallel recording
+    for (size_t i = 0; i < commands.size(); ++i) {
+        uint32_t poolIndex;
+        VkCommandBuffer cmdBuffer = getAvailableCommandBuffer(poolIndex);
+        cmdBuffers.push_back(cmdBuffer);
+        poolIndices.push_back(poolIndex);
+        
+        // Begin recording
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+        
+        // Record the command
+        commands[i].recordFunc(cmdBuffer);
+        vkEndCommandBuffer(cmdBuffer);
+    }
+    
+    // Submit all commands at once with synchronization
+    std::vector<VkSubmitInfo> submitInfos;
+    std::vector<VkFence> fences;
+    std::vector<std::unique_ptr<GraphicsCommand>> graphicsCommands;
+    
+    submitInfos.reserve(commands.size());
+    fences.reserve(commands.size());
+    graphicsCommands.reserve(commands.size());
+    
+    for (size_t i = 0; i < commands.size(); ++i) {
+        auto graphicsCmd = std::make_unique<GraphicsCommand>(commands[i]);
+        uint64_t id = graphicsCmd->id;
+        commandIds.push_back(id);
+        
+        VkFence fence = getAvailableFence();
+        if (graphicsCmd->signalFence == VK_NULL_HANDLE) {
+            graphicsCmd->signalFence = fence;
+        }
+        fences.push_back(graphicsCmd->signalFence);
+        
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &cmdBuffers[i];
+        
+        if (graphicsCmd->waitSemaphore != VK_NULL_HANDLE) {
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = &graphicsCmd->waitSemaphore;
+            submitInfo.pWaitDstStageMask = &graphicsCmd->waitStage;
+        }
+        
+        submitInfos.push_back(submitInfo);
+        graphicsCommands.push_back(std::move(graphicsCmd));
+    }
+    
+    // Submit all commands in batch
+    if (!submitInfos.empty()) {
+        for (size_t i = 0; i < submitInfos.size(); ++i) {
+            vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfos[i], fences[i]);
+        }
+        
+        // Store pending graphics commands
+        {
+            std::lock_guard<std::mutex> lock(graphicsMutex);
+            for (auto& cmd : graphicsCommands) {
+                pendingGraphics[cmd->id] = std::move(cmd);
+            }
+        }
+    }
+    
+    // Return command buffers to pools
+    for (size_t i = 0; i < cmdBuffers.size(); ++i) {
+        returnCommandBuffer(poolIndices[i], cmdBuffers[i]);
+    }
+    
+    Logger::debug("QueueManager", "Submitted " + std::to_string(commands.size()) + " graphics commands in parallel");
+    return commandIds;
+}
+
+uint64_t QueueManager::submitGraphicsWithDependency(const GraphicsCommand& command, uint64_t waitForId) {
+    // Find the fence/semaphore from the dependency
+    VkSemaphore dependencySemaphore = VK_NULL_HANDLE;
+    {
+        std::lock_guard<std::mutex> lock(graphicsMutex);
+        auto it = pendingGraphics.find(waitForId);
+        if (it != pendingGraphics.end()) {
+            dependencySemaphore = getAvailableSemaphore();
+        }
+    }
+    
+    GraphicsCommand depCommand = command;
+    depCommand.waitSemaphore = dependencySemaphore;
+    return submitGraphics(depCommand);
+}
+
+void QueueManager::submitChunkRenderCommands(const std::vector<GraphicsCommand>& commands, 
+                                            std::function<void()> onComplete) {
+    if (commands.empty()) {
+        if (onComplete) onComplete();
+        return;
+    }
+    
+    auto commandIds = submitGraphicsParallel(commands);
+    
+    if (onComplete) {
+        // Create a completion checker job
+        std::thread([this, commandIds, onComplete]() {
+            // Wait for all commands to complete
+            for (uint64_t id : commandIds) {
+                waitForGraphics(id);
+            }
+            onComplete();
+        }).detach();
+    }
 }
 
 void QueueManager::waitForTransfer(uint64_t transferId) {
@@ -283,4 +410,70 @@ void QueueManager::returnFence(VkFence fence) {
     } else {
         vkDestroyFence(vulkanContext->getDevice(), fence, nullptr);
     }
+}
+
+void QueueManager::createCommandPools() {
+    commandPools.resize(COMMAND_POOL_COUNT);
+    commandBufferPools.resize(COMMAND_POOL_COUNT);
+    poolMutexes.reserve(COMMAND_POOL_COUNT);
+    
+    // Initialize unique_ptr mutexes
+    for (size_t i = 0; i < COMMAND_POOL_COUNT; ++i) {
+        poolMutexes.push_back(std::make_unique<std::mutex>());
+    }
+    
+    auto queueFamilyIndices = vulkanContext->findQueueFamilies(vulkanContext->getPhysicalDevice());
+    
+    for (size_t i = 0; i < COMMAND_POOL_COUNT; ++i) {
+        VkCommandPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+        poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value();
+        
+        if (vkCreateCommandPool(vulkanContext->getDevice(), &poolInfo, nullptr, &commandPools[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create command pool " + std::to_string(i));
+        }
+        
+        // Allocate command buffers for this pool
+        commandBufferPools[i].resize(BUFFERS_PER_POOL);
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = commandPools[i];
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = BUFFERS_PER_POOL;
+        
+        if (vkAllocateCommandBuffers(vulkanContext->getDevice(), &allocInfo, commandBufferPools[i].data()) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate command buffers for pool " + std::to_string(i));
+        }
+    }
+}
+
+void QueueManager::destroyCommandPools() {
+    for (VkCommandPool pool : commandPools) {
+        if (pool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(vulkanContext->getDevice(), pool, nullptr);
+        }
+    }
+    commandPools.clear();
+    commandBufferPools.clear();
+    poolMutexes.clear();
+}
+
+VkCommandBuffer QueueManager::getAvailableCommandBuffer(uint32_t& poolIndex) {
+    poolIndex = nextPoolIndex.fetch_add(1) % COMMAND_POOL_COUNT;
+    
+    std::lock_guard<std::mutex> lock(*poolMutexes[poolIndex]);
+    
+    // For now, just use the first buffer in the pool - could implement round-robin later
+    VkCommandBuffer cmdBuffer = commandBufferPools[poolIndex][0];
+    
+    // Reset the command buffer
+    vkResetCommandBuffer(cmdBuffer, 0);
+    
+    return cmdBuffer;
+}
+
+void QueueManager::returnCommandBuffer(uint32_t poolIndex, VkCommandBuffer commandBuffer) {
+    // Command buffer returns to its pool automatically after submission
+    // No explicit action needed due to VK_COMMAND_POOL_CREATE_TRANSIENT_BIT
 }

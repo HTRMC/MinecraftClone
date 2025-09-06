@@ -2,8 +2,8 @@
 #include "Logger.hpp"
 #include <cstring>
 
-MeshBufferManager::MeshBufferManager(VulkanContext* vulkanContext, JobSystem* jobSystem)
-    : vulkanContext(vulkanContext), jobSystem(jobSystem) {
+MeshBufferManager::MeshBufferManager(VulkanContext* vulkanContext, JobSystem* jobSystem, QueueManager* queueManager)
+    : vulkanContext(vulkanContext), jobSystem(jobSystem), queueManager(queueManager) {
 }
 
 MeshBufferManager::~MeshBufferManager() {
@@ -273,7 +273,51 @@ uint64_t MeshBufferManager::submitChunkToGPU(ChunkData* chunk, std::function<voi
     return submissionId;
 }
 
+void MeshBufferManager::submitChunksToGPUParallel(std::vector<ChunkData*> chunks, std::function<void()> onComplete) {
+    if (chunks.empty()) {
+        if (onComplete) onComplete();
+        return;
+    }
+    
+    std::vector<GraphicsCommand> commands;
+    commands.reserve(chunks.size());
+    
+    for (ChunkData* chunk : chunks) {
+        if (!chunk || chunk->faces.vertices.empty()) continue;
+        
+        writeChunkToBuffers(chunk);
+        
+        uint64_t chunkKey = getChunkKey(chunk->x, chunk->z);
+        auto& bufferData = chunkBuffers[chunkKey];
+        
+        if (bufferData.faceBuffer) {
+            GraphicsCommand cmd([this, chunk, bufferData](VkCommandBuffer cmdBuffer) {
+                // Record buffer copy operations for this chunk
+                VkBufferCopy copyRegion{};
+                copyRegion.size = chunk->faces.vertices.size() * sizeof(float);
+                vkCmdCopyBuffer(cmdBuffer, bufferData.faceBuffer->buffer, bufferData.faceBuffer->buffer, 1, &copyRegion);
+                
+                copyRegion.size = chunk->models.transforms.size() * sizeof(float);
+                vkCmdCopyBuffer(cmdBuffer, bufferData.modelBuffer->buffer, bufferData.modelBuffer->buffer, 1, &copyRegion);
+                
+                copyRegion.size = chunk->lighting.lightLevels.size();
+                vkCmdCopyBuffer(cmdBuffer, bufferData.lightBuffer->buffer, bufferData.lightBuffer->buffer, 1, &copyRegion);
+            });
+            
+            commands.push_back(cmd);
+        }
+    }
+    
+    if (!commands.empty()) {
+        queueManager->submitChunkRenderCommands(commands, onComplete);
+        Logger::info("MeshBufferManager", "Submitted " + std::to_string(commands.size()) + " chunks to GPU in parallel");
+    } else if (onComplete) {
+        onComplete();
+    }
+}
+
 void MeshBufferManager::processCompletedSubmissions() {
+    queueManager->processCompletedOperations();
     vulkanContext->processBufferFences(faceBufferPool);
     vulkanContext->processBufferFences(modelBufferPool);
     vulkanContext->processBufferFences(lightBufferPool);

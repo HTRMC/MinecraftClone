@@ -130,6 +130,27 @@ void JobSystem::submitChunkLightUpdate(ChunkData* chunk) {
     });
 }
 
+void JobSystem::submitMultipleChunksParallel(std::vector<ChunkData*> chunks, std::function<void()> onComplete) {
+    if (chunks.empty()) {
+        if (onComplete) onComplete();
+        return;
+    }
+    
+    auto completionCounter = std::make_shared<std::atomic<int>>(static_cast<int>(chunks.size()));
+    
+    auto onChunkComplete = [completionCounter, onComplete]() {
+        if (completionCounter->fetch_sub(1) == 1) {
+            if (onComplete) onComplete();
+        }
+    };
+    
+    for (ChunkData* chunk : chunks) {
+        submitChunkOperationsParallel(chunk, onChunkComplete);
+    }
+    
+    Logger::info("JobSystem", "Submitted " + std::to_string(chunks.size()) + " chunks for parallel processing");
+}
+
 size_t JobSystem::getQueueSize() const {
     std::lock_guard<std::mutex> lock(queueMutex);
     return jobQueue.size();
