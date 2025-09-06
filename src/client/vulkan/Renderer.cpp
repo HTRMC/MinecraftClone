@@ -39,10 +39,9 @@ void Renderer::init() {
     chunkRenderer = std::make_unique<ChunkRenderer>(vulkanContext, descriptorManager.get(), meshPipeline.get());
     chunkRenderer->init();
     
-    // Create sync objects - one set per swapchain image to avoid reuse issues
-    size_t swapchainImageCount = swapChainImages.size();
-    imageAvailableSemaphores.resize(swapchainImageCount);
-    renderFinishedSemaphores.resize(swapchainImageCount);
+    // Create sync objects - one set per frame in flight for proper synchronization
+    imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+    renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
     inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
     
     VkSemaphoreCreateInfo semaphoreInfo{};
@@ -52,11 +51,11 @@ void Renderer::init() {
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     
-    // Create semaphores per swapchain image
-    for (size_t i = 0; i < swapchainImageCount; i++) {
+    // Create semaphores per frame in flight
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
             vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create synchronization objects for swapchain images!");
+            throw std::runtime_error("Failed to create synchronization objects for frames!");
         }
     }
     
@@ -103,12 +102,22 @@ void Renderer::render() {
     if (!initialized) return;
     
     // Wait for fence first to ensure previous work is done (critical for semaphore safety)
-    vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+    VkResult fenceWaitResult = vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+    if (fenceWaitResult != VK_SUCCESS) {
+        Logger::error("Renderer", "Failed to wait for fence: " + std::to_string(fenceWaitResult));
+        return;
+    }
+    
+    // Reset fence only after successfully waiting for it
+    VkResult fenceResetResult = vkResetFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame]);
+    if (fenceResetResult != VK_SUCCESS) {
+        Logger::error("Renderer", "Failed to reset fence: " + std::to_string(fenceResetResult));
+        return;
+    }
     
     uint32_t imageIndex;
-    uint32_t acquireSemaphoreIndex = currentFrame % imageAvailableSemaphores.size();
     VkResult result = vkAcquireNextImageKHR(vulkanContext->getDevice(), swapChain, UINT64_MAX, 
-                                           imageAvailableSemaphores[acquireSemaphoreIndex], VK_NULL_HANDLE, &imageIndex);
+                                           imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
     
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR) {
         recreateSwapChain();
@@ -120,8 +129,6 @@ void Renderer::render() {
         return;
     }
     
-    vkResetFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame]);
-    
     // Check if we need to update anything (camera changed or data changed)
     bool cameraChanged = camera && camera->hasChanged();
     bool dataChanged = chunkRenderer && chunkRenderer->hasDataChanged();
@@ -132,7 +139,13 @@ void Renderer::render() {
                          recordedForImageIndex[currentFrame] != imageIndex;
     
     if (needsRecording) {
-        vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+        // Only reset if we're sure the previous command buffer has finished
+        // The fence wait above ensures this
+        VkResult resetResult = vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+        if (resetResult != VK_SUCCESS) {
+            Logger::error("Renderer", "Failed to reset command buffer: " + std::to_string(resetResult));
+            return;
+        }
         
         // Record static commands (render pass setup, viewport, etc.)
         recordStaticCommandBuffer(commandBuffers[currentFrame], imageIndex);
@@ -144,13 +157,10 @@ void Renderer::render() {
         recordedForImageIndex[currentFrame] = imageIndex;
     }
     
-    // Track that we're using this semaphore in this frame
-    lastSubmittedFrame[acquireSemaphoreIndex] = frameNumber;
-    
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     
-    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[acquireSemaphoreIndex]};
+    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
     submitInfo.waitSemaphoreCount = 1;
     submitInfo.pWaitSemaphores = waitSemaphores;
@@ -159,12 +169,14 @@ void Renderer::render() {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
     
-    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[imageIndex]};
+    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
     
-    if (vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to submit draw command buffer!");
+    VkResult submitResult = vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, inFlightFences[currentFrame]);
+    if (submitResult != VK_SUCCESS) {
+        Logger::error("Renderer", "Failed to submit draw command buffer: " + std::to_string(submitResult));
+        return;
     }
     
     VkPresentInfoKHR presentInfo{};
@@ -592,7 +604,14 @@ void Renderer::recreateSwapChain() {
     createSwapChain();
     createImageViews();
     createDepthResources();
+    createRenderPass();
     createFramebuffers();
+    
+    // Recreate mesh pipeline with new render pass
+    if (meshPipeline) {
+        meshPipeline->cleanup();
+        meshPipeline->init(renderPass);
+    }
 }
 
 void Renderer::cleanupSwapChain() {

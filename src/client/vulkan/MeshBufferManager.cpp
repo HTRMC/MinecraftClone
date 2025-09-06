@@ -102,15 +102,19 @@ void MeshBufferManager::updateChunkLighting(int32_t chunkX, int32_t chunkZ) {
         jobSystem->submit(JobPriority::LOW, [this, chunk]() {
             if (!chunk->lighting.lightLevels.empty()) {
                 BufferInfo* lightBuffer = vulkanContext->acquireBuffer(lightBufferPool);
-                if (lightBuffer && lightBuffer->mappedMemory) {
+                if (lightBuffer) {
+                    void* mappedData = vulkanContext->mapBuffer(*lightBuffer);
+                    if (mappedData) {
                     size_t dataSize = chunk->lighting.lightLevels.size() + 
                                     chunk->lighting.lightColors.size() * sizeof(uint32_t);
                     if (dataSize <= lightBuffer->size) {
-                        std::memcpy(lightBuffer->mappedMemory, chunk->lighting.lightLevels.data(), 
+                        std::memcpy(mappedData, chunk->lighting.lightLevels.data(), 
                                    chunk->lighting.lightLevels.size());
-                        std::memcpy(static_cast<char*>(lightBuffer->mappedMemory) + chunk->lighting.lightLevels.size(),
+                        std::memcpy(static_cast<char*>(mappedData) + chunk->lighting.lightLevels.size(),
                                    chunk->lighting.lightColors.data(), 
                                    chunk->lighting.lightColors.size() * sizeof(uint32_t));
+                        vulkanContext->unmapBuffer(*lightBuffer);
+                    }
                     }
                 }
             }
@@ -174,25 +178,37 @@ void MeshBufferManager::writeChunkToBuffers(ChunkData* chunk) {
     size_t lightDataSize = chunk->lighting.lightLevels.size() + 
                           chunk->lighting.lightColors.size() * sizeof(uint32_t);
     
-    if (faceDataSize <= faceBuffer->size && faceBuffer->mappedMemory) {
-        char* facePtr = static_cast<char*>(faceBuffer->mappedMemory);
+    if (faceDataSize <= faceBuffer->size) {
+        void* mappedData = vulkanContext->mapBuffer(*faceBuffer);
+        if (mappedData) {
+            char* facePtr = static_cast<char*>(mappedData);
         std::memcpy(facePtr, chunk->faces.vertices.data(), chunk->faces.vertices.size() * sizeof(float));
         std::memcpy(facePtr + chunk->faces.vertices.size() * sizeof(float), 
                    chunk->faces.indices.data(), chunk->faces.indices.size() * sizeof(uint32_t));
+            vulkanContext->unmapBuffer(*faceBuffer);
+        }
     }
     
-    if (modelDataSize <= modelBuffer->size && modelBuffer->mappedMemory) {
-        char* modelPtr = static_cast<char*>(modelBuffer->mappedMemory);
+    if (modelDataSize <= modelBuffer->size) {
+        void* mappedData = vulkanContext->mapBuffer(*modelBuffer);
+        if (mappedData) {
+            char* modelPtr = static_cast<char*>(mappedData);
         std::memcpy(modelPtr, chunk->models.transforms.data(), chunk->models.transforms.size() * sizeof(float));
         std::memcpy(modelPtr + chunk->models.transforms.size() * sizeof(float),
                    chunk->models.modelIds.data(), chunk->models.modelIds.size() * sizeof(uint32_t));
+            vulkanContext->unmapBuffer(*modelBuffer);
+        }
     }
     
-    if (lightDataSize <= lightBuffer->size && lightBuffer->mappedMemory) {
-        char* lightPtr = static_cast<char*>(lightBuffer->mappedMemory);
+    if (lightDataSize <= lightBuffer->size) {
+        void* mappedData = vulkanContext->mapBuffer(*lightBuffer);
+        if (mappedData) {
+            char* lightPtr = static_cast<char*>(mappedData);
         std::memcpy(lightPtr, chunk->lighting.lightLevels.data(), chunk->lighting.lightLevels.size());
         std::memcpy(lightPtr + chunk->lighting.lightLevels.size(),
                    chunk->lighting.lightColors.data(), chunk->lighting.lightColors.size() * sizeof(uint32_t));
+            vulkanContext->unmapBuffer(*lightBuffer);
+        }
     }
     
     uint64_t chunkKey = getChunkKey(chunk->x, chunk->z);

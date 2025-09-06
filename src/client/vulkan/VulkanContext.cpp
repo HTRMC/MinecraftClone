@@ -12,6 +12,9 @@
 
 #include "Logger.hpp"
 
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
+
 // ================= Helper Functions =================
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -38,6 +41,20 @@ void VulkanContext::init() {
     pickPhysicalDevice();
     createLogicalDevice();
     loadExtensionFunctions();
+    
+    // Initialize VMA after creating logical device
+    VmaAllocatorCreateInfo allocatorInfo{};
+    allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+    allocatorInfo.physicalDevice = physicalDevice;
+    allocatorInfo.device = device;
+    allocatorInfo.instance = instance;
+    
+    if (vmaCreateAllocator(&allocatorInfo, &allocator) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create VMA allocator!");
+    }
+    
+    Logger::info("VulkanContext", "VMA allocator initialized");
+    
     createCommandPools();
 }
 
@@ -50,6 +67,11 @@ void VulkanContext::cleanup() {
         }
         if (transferCommandPool.pool != VK_NULL_HANDLE) {
             vkDestroyCommandPool(device, transferCommandPool.pool, nullptr);
+        }
+        
+        if (allocator != VK_NULL_HANDLE) {
+            vmaDestroyAllocator(allocator);
+            allocator = VK_NULL_HANDLE;
         }
         
         vkDestroyDevice(device, nullptr);
@@ -191,11 +213,20 @@ void VulkanContext::createLogicalDevice() {
     meshShaderFeatures.meshShader = VK_TRUE;
     meshShaderFeatures.taskShader = VK_TRUE;
 
+    // Enable Vulkan 1.2 features for bindless textures
+    VkPhysicalDeviceVulkan12Features vulkan12Features{};
+    vulkan12Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    vulkan12Features.runtimeDescriptorArray = VK_TRUE;
+    vulkan12Features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    vulkan12Features.descriptorBindingPartiallyBound = VK_TRUE;
+    vulkan12Features.descriptorBindingVariableDescriptorCount = VK_TRUE;
+    vulkan12Features.pNext = &meshShaderFeatures;
+
     // Enable maintenance4 features for LocalSizeId
     VkPhysicalDeviceMaintenance4Features maintenance4Features{};
     maintenance4Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES;
     maintenance4Features.maintenance4 = VK_TRUE;
-    maintenance4Features.pNext = &meshShaderFeatures;
+    maintenance4Features.pNext = &vulkan12Features;
 
     VkPhysicalDeviceFeatures2 deviceFeatures2{};
     deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -266,59 +297,17 @@ std::vector<const char*> VulkanContext::getRequiredExtensions() {
 // ---------------- Buffer Management ----------------
 
 BufferInfo VulkanContext::createStorageBuffer(VkDeviceSize size) {
-    BufferInfo bufferInfo;
-    bufferInfo.size = size;
-
-    VkBufferCreateInfo bufferCreateInfo{};
-    bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferCreateInfo.size = size;
-    bufferCreateInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if (vkCreateBuffer(device, &bufferCreateInfo, nullptr, &bufferInfo.buffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create storage buffer!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(device, bufferInfo.buffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, 
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferInfo.memory) != VK_SUCCESS) {
-        vkDestroyBuffer(device, bufferInfo.buffer, nullptr);
-        throw std::runtime_error("Failed to allocate storage buffer memory!");
-    }
-
-    vkBindBufferMemory(device, bufferInfo.buffer, bufferInfo.memory, 0);
-
-    if (vkMapMemory(device, bufferInfo.memory, 0, size, 0, &bufferInfo.mappedMemory) != VK_SUCCESS) {
-        vkFreeMemory(device, bufferInfo.memory, nullptr);
-        vkDestroyBuffer(device, bufferInfo.buffer, nullptr);
-        throw std::runtime_error("Failed to map storage buffer memory!");
-    }
-
-    Logger::info("Vulkan", "Created storage buffer of size " + std::to_string(size) + " bytes");
-    return bufferInfo;
+    return createBuffer(size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 }
 
 void VulkanContext::destroyBuffer(BufferInfo& bufferInfo) {
-    if (bufferInfo.mappedMemory) {
-        vkUnmapMemory(device, bufferInfo.memory);
-        bufferInfo.mappedMemory = nullptr;
-    }
-    if (bufferInfo.memory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, bufferInfo.memory, nullptr);
-        bufferInfo.memory = VK_NULL_HANDLE;
-    }
-    if (bufferInfo.buffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, bufferInfo.buffer, nullptr);
+    if (bufferInfo.buffer != VK_NULL_HANDLE && bufferInfo.allocation != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(allocator, bufferInfo.buffer, bufferInfo.allocation);
         bufferInfo.buffer = VK_NULL_HANDLE;
+        bufferInfo.allocation = VK_NULL_HANDLE;
     }
     bufferInfo.size = 0;
+    bufferInfo.allocationInfo = {};
 }
 
 uint32_t VulkanContext::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
@@ -591,41 +580,39 @@ void VulkanContext::createCommandPools() {
 // ---------------- Transfer Operations ----------------
 
 BufferInfo VulkanContext::createStagingBuffer(VkDeviceSize size) {
+    return createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+}
+
+BufferInfo VulkanContext::createUniformBuffer(VkDeviceSize size) {
+    return createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+}
+
+BufferInfo VulkanContext::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage) {
     BufferInfo bufferInfo;
     bufferInfo.size = size;
 
     VkBufferCreateInfo bufferCreateInfo{};
     bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferCreateInfo.size = size;
-    bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferCreateInfo.usage = usage;
     bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(device, &bufferCreateInfo, nullptr, &bufferInfo.buffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create staging buffer!");
+    VmaAllocationCreateInfo allocCreateInfo{};
+    allocCreateInfo.usage = memoryUsage;
+    
+    // Map memory for CPU accessible buffers
+    if (memoryUsage == VMA_MEMORY_USAGE_CPU_ONLY || memoryUsage == VMA_MEMORY_USAGE_CPU_TO_GPU) {
+        allocCreateInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
     }
 
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(device, bufferInfo.buffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, 
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferInfo.memory) != VK_SUCCESS) {
-        vkDestroyBuffer(device, bufferInfo.buffer, nullptr);
-        throw std::runtime_error("Failed to allocate staging buffer memory!");
+    VkResult result = vmaCreateBuffer(allocator, &bufferCreateInfo, &allocCreateInfo,
+                                     &bufferInfo.buffer, &bufferInfo.allocation, &bufferInfo.allocationInfo);
+    
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create buffer with VMA! Error: " + std::to_string(result));
     }
 
-    vkBindBufferMemory(device, bufferInfo.buffer, bufferInfo.memory, 0);
-
-    if (vkMapMemory(device, bufferInfo.memory, 0, size, 0, &bufferInfo.mappedMemory) != VK_SUCCESS) {
-        vkFreeMemory(device, bufferInfo.memory, nullptr);
-        vkDestroyBuffer(device, bufferInfo.buffer, nullptr);
-        throw std::runtime_error("Failed to map staging buffer memory!");
-    }
-
+    Logger::debug("VulkanContext", "Created buffer of size " + std::to_string(size) + " bytes using VMA");
     return bufferInfo;
 }
 
@@ -714,4 +701,132 @@ void VulkanContext::loadExtensionFunctions() {
     }
     
     Logger::info("VulkanContext", "Loaded mesh shader extension functions");
+}
+
+// ---------------- VMA Image Management ----------------
+
+ImageInfo VulkanContext::createImage(uint32_t width, uint32_t height, VkFormat format, 
+                                    VkImageTiling tiling, VkImageUsageFlags usage, VmaMemoryUsage memoryUsage) {
+    ImageInfo imageInfo;
+    imageInfo.width = width;
+    imageInfo.height = height;
+    imageInfo.format = format;
+
+    VkImageCreateInfo imageCreateInfo{};
+    imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageCreateInfo.extent.width = width;
+    imageCreateInfo.extent.height = height;
+    imageCreateInfo.extent.depth = 1;
+    imageCreateInfo.mipLevels = 1;
+    imageCreateInfo.arrayLayers = 1;
+    imageCreateInfo.format = format;
+    imageCreateInfo.tiling = tiling;
+    imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageCreateInfo.usage = usage;
+    imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo allocCreateInfo{};
+    allocCreateInfo.usage = memoryUsage;
+
+    VkResult result = vmaCreateImage(allocator, &imageCreateInfo, &allocCreateInfo,
+                                    &imageInfo.image, &imageInfo.allocation, &imageInfo.allocationInfo);
+    
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create image with VMA! Error: " + std::to_string(result));
+    }
+
+    Logger::debug("VulkanContext", "Created image " + std::to_string(width) + "x" + std::to_string(height) + " using VMA");
+    return imageInfo;
+}
+
+void VulkanContext::destroyImage(ImageInfo& imageInfo) {
+    if (imageInfo.image != VK_NULL_HANDLE && imageInfo.allocation != VK_NULL_HANDLE) {
+        vmaDestroyImage(allocator, imageInfo.image, imageInfo.allocation);
+        imageInfo.image = VK_NULL_HANDLE;
+        imageInfo.allocation = VK_NULL_HANDLE;
+    }
+    imageInfo.width = 0;
+    imageInfo.height = 0;
+    imageInfo.format = VK_FORMAT_UNDEFINED;
+    imageInfo.allocationInfo = {};
+}
+
+void VulkanContext::transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands(true);
+    
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    
+    VkPipelineStageFlags sourceStage;
+    VkPipelineStageFlags destinationStage;
+    
+    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        
+        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        
+        sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else {
+        throw std::invalid_argument("Unsupported layout transition!");
+    }
+    
+    vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    
+    endSingleTimeCommands(commandBuffer, true);
+}
+
+void VulkanContext::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands(true);
+    
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {width, height, 1};
+    
+    vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    
+    endSingleTimeCommands(commandBuffer, true);
+}
+
+void* VulkanContext::mapBuffer(const BufferInfo& bufferInfo) {
+    if (bufferInfo.allocationInfo.pMappedData) {
+        return bufferInfo.allocationInfo.pMappedData;
+    }
+    
+    void* mappedData;
+    VkResult result = vmaMapMemory(allocator, bufferInfo.allocation, &mappedData);
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to map buffer memory with VMA! Error: " + std::to_string(result));
+    }
+    return mappedData;
+}
+
+void VulkanContext::unmapBuffer(const BufferInfo& bufferInfo) {
+    if (!bufferInfo.allocationInfo.pMappedData) {
+        vmaUnmapMemory(allocator, bufferInfo.allocation);
+    }
 }

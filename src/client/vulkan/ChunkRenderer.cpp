@@ -257,61 +257,25 @@ void ChunkRenderer::createDescriptorSet() {
 }
 
 BufferInfo ChunkRenderer::createStorageBuffer(size_t size, const void* data) {
-    BufferInfo bufferInfo;
-    bufferInfo.size = size;
-
-    VkBufferCreateInfo bufferCreateInfo{};
-    bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferCreateInfo.size = bufferInfo.size;
-    bufferCreateInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if (vkCreateBuffer(vulkanContext->getDevice(), &bufferCreateInfo, nullptr, &bufferInfo.buffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create storage buffer!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(vulkanContext->getDevice(), bufferInfo.buffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = vulkanContext->findMemoryType(memRequirements.memoryTypeBits, 
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    if (vkAllocateMemory(vulkanContext->getDevice(), &allocInfo, nullptr, &bufferInfo.memory) != VK_SUCCESS) {
-        vkDestroyBuffer(vulkanContext->getDevice(), bufferInfo.buffer, nullptr);
-        throw std::runtime_error("Failed to allocate storage buffer memory!");
-    }
-
-    vkBindBufferMemory(vulkanContext->getDevice(), bufferInfo.buffer, bufferInfo.memory, 0);
+    BufferInfo bufferInfo = vulkanContext->createStorageBuffer(size);
 
     if (data) {
-        void* mappedMemory;
-        vkMapMemory(vulkanContext->getDevice(), bufferInfo.memory, 0, bufferInfo.size, 0, &mappedMemory);
-        std::memcpy(mappedMemory, data, size);
-        vkUnmapMemory(vulkanContext->getDevice(), bufferInfo.memory);
+        void* mappedData = vulkanContext->mapBuffer(bufferInfo);
+        std::memcpy(mappedData, data, size);
+        vulkanContext->unmapBuffer(bufferInfo);
     }
 
     return bufferInfo;
 }
 
 void ChunkRenderer::updateStorageBuffer(BufferInfo& buffer, const void* data, size_t size) {
-    void* mappedMemory;
-    vkMapMemory(vulkanContext->getDevice(), buffer.memory, 0, size, 0, &mappedMemory);
-    std::memcpy(mappedMemory, data, size);
-    vkUnmapMemory(vulkanContext->getDevice(), buffer.memory);
+    void* mappedData = vulkanContext->mapBuffer(buffer);
+    std::memcpy(mappedData, data, size);
+    vulkanContext->unmapBuffer(buffer);
 }
 
 void ChunkRenderer::destroyBuffer(BufferInfo& buffer) {
-    if (buffer.buffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(vulkanContext->getDevice(), buffer.buffer, nullptr);
-        buffer.buffer = VK_NULL_HANDLE;
-    }
-    if (buffer.memory != VK_NULL_HANDLE) {
-        vkFreeMemory(vulkanContext->getDevice(), buffer.memory, nullptr);
-        buffer.memory = VK_NULL_HANDLE;
-    }
+    vulkanContext->destroyBuffer(buffer);
 }
 
 void ChunkRenderer::addTestCubeFromJSON() {

@@ -83,7 +83,7 @@ void DescriptorManager::createDescriptorSetLayout() {
     bindings[5].descriptorCount = 4096; // Max textures
     bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     
-    // Binding 6: Texture sampler
+    // Binding 6: Texture sampler (must be last for variable count)
     bindings[6].binding = 6;
     bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
     bindings[6].descriptorCount = 1;
@@ -96,8 +96,8 @@ void DescriptorManager::createDescriptorSetLayout() {
         0, // ModelData  
         0, // LightData
         0, // ChunkCoordBuffer
-        VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, // Texture array
-        0  // Sampler
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, // Texture array (binding 5)
+        VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT  // Sampler (binding 6, must be last for variable count)
     };
     
     VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{};
@@ -263,7 +263,7 @@ void DescriptorManager::updateDescriptorSet(VkDescriptorSet descriptorSet,
     VkDescriptorImageInfo samplerInfo{};
     
     if (textureManager && textureManager->getTextureCount() > 0) {
-        // Texture array descriptor
+        // Texture array descriptor (binding 5 = SAMPLED_IMAGE)
         const auto& imageViews = textureManager->getTextureImageViews();
         imageInfos.resize(imageViews.size());
         
@@ -281,7 +281,7 @@ void DescriptorManager::updateDescriptorSet(VkDescriptorSet descriptorSet,
         descriptorWrites[5].descriptorCount = static_cast<uint32_t>(imageInfos.size());
         descriptorWrites[5].pImageInfo = imageInfos.data();
         
-        // Sampler descriptor
+        // Sampler descriptor (binding 6 = SAMPLER)
         samplerInfo.sampler = textureManager->getTextureSampler();
         samplerInfo.imageView = VK_NULL_HANDLE;
         samplerInfo.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -301,46 +301,11 @@ void DescriptorManager::updateDescriptorSet(VkDescriptorSet descriptorSet,
 }
 
 BufferInfo DescriptorManager::createUniformBuffer() {
-    BufferInfo bufferInfo;
-    bufferInfo.size = sizeof(UniformBufferObject);
-
-    VkBufferCreateInfo bufferCreateInfo{};
-    bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferCreateInfo.size = bufferInfo.size;
-    bufferCreateInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    if (vkCreateBuffer(vulkanContext->getDevice(), &bufferCreateInfo, nullptr, &bufferInfo.buffer) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create uniform buffer!");
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(vulkanContext->getDevice(), bufferInfo.buffer, &memRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = vulkanContext->findMemoryType(memRequirements.memoryTypeBits, 
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    if (vkAllocateMemory(vulkanContext->getDevice(), &allocInfo, nullptr, &bufferInfo.memory) != VK_SUCCESS) {
-        vkDestroyBuffer(vulkanContext->getDevice(), bufferInfo.buffer, nullptr);
-        throw std::runtime_error("Failed to allocate uniform buffer memory!");
-    }
-
-    vkBindBufferMemory(vulkanContext->getDevice(), bufferInfo.buffer, bufferInfo.memory, 0);
-
-    if (vkMapMemory(vulkanContext->getDevice(), bufferInfo.memory, 0, bufferInfo.size, 0, &bufferInfo.mappedMemory) != VK_SUCCESS) {
-        vkFreeMemory(vulkanContext->getDevice(), bufferInfo.memory, nullptr);
-        vkDestroyBuffer(vulkanContext->getDevice(), bufferInfo.buffer, nullptr);
-        throw std::runtime_error("Failed to map uniform buffer memory!");
-    }
-
-    return bufferInfo;
+    return vulkanContext->createUniformBuffer(sizeof(UniformBufferObject));
 }
 
 void DescriptorManager::updateUniformBuffer(BufferInfo& uboBuffer, const UniformBufferObject& ubo) {
-    if (uboBuffer.mappedMemory) {
-        std::memcpy(uboBuffer.mappedMemory, &ubo, sizeof(ubo));
-    }
+    void* mappedData = vulkanContext->mapBuffer(uboBuffer);
+    std::memcpy(mappedData, &ubo, sizeof(ubo));
+    vulkanContext->unmapBuffer(uboBuffer);
 }

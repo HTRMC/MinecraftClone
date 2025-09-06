@@ -8,8 +8,7 @@ struct TextureEntry {
     uint32_t textureId;
     std::string path;
     uint32_t width, height;
-    VkImage image;
-    VkDeviceMemory imageMemory;
+    ImageInfo imageInfo; // Now using VMA-managed image
     VkImageView imageView;
 };
 
@@ -38,10 +37,6 @@ private:
     void createTextureSampler();
     void createTextureImage(const std::string& path, TextureEntry& entry);
     std::vector<uint8_t> loadPNG(const std::string& path, int& width, int& height);
-    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
-    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-    VkCommandBuffer beginSingleTimeCommands();
-    void endSingleTimeCommands(VkCommandBuffer commandBuffer);
     
 private:
     VulkanContext* vulkanContext;

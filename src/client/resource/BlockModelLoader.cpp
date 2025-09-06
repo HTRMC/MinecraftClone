@@ -435,6 +435,13 @@ BlockModel BlockModelLoader::mergeWithParent(const BlockModel& child, const Bloc
         merged.elements = parent.elements;
     }
     
+    // Resolve texture references in element faces
+    for (auto& element : merged.elements) {
+        for (auto& [faceName, face] : element.faces) {
+            face.texture = resolveTextureReference(face.texture, merged.textures);
+        }
+    }
+    
     // Clear parent reference as it's been resolved
     merged.parent.reset();
     

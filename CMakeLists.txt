@@ -7,6 +7,7 @@ include(FetchContent)
 
 find_package(Vulkan REQUIRED)
 
+# GLFW
 FetchContent_Declare(
         glfw
         GIT_REPOSITORY https://github.com/glfw/glfw.git
@@ -17,6 +18,7 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "Don't build GLFW tests")
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Don't build GLFW examples")
 FetchContent_MakeAvailable(glfw)
 
+# glm
 FetchContent_Declare(
         glm
         GIT_REPOSITORY https://github.com/g-truc/glm.git
@@ -24,7 +26,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
-# simdjson for high-performance JSON parsing
+# simdjson
 FetchContent_Declare(
         simdjson
         GIT_REPOSITORY https://github.com/simdjson/simdjson.git
@@ -43,6 +45,14 @@ set(SPNG_USE_SYSTEM_ZLIB OFF CACHE BOOL "" FORCE)
 set(SPNG_STATIC ON CACHE BOOL "" FORCE)
 set(SPNG_SHARED OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(spng)
+
+# VMA
+FetchContent_Declare(
+        VMA
+        GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+        GIT_TAG        v3.3.0
+)
+FetchContent_MakeAvailable(VMA)
 
 find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/Bin)
 if(NOT GLSLC)
@@ -200,11 +210,11 @@ add_custom_command(
 target_include_directories(${CMAKE_PROJECT_NAME}Client PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${Vulkan_INCLUDE_DIRS}
+        ${vma_SOURCE_DIR}/include
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME}Server PRIVATE
         ${CMAKE_SOURCE_DIR}/src
-        ${Vulkan_INCLUDE_DIRS}
 )
 
 # Platform-specific libraries

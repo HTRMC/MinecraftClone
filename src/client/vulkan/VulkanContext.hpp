@@ -4,14 +4,24 @@
 #include <vector>
 #include <optional>
 #include <string>
+#include <vk_mem_alloc.h>
 
 class Window;
 
 struct BufferInfo {
     VkBuffer buffer = VK_NULL_HANDLE;
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-    void* mappedMemory = nullptr;
+    VmaAllocation allocation = VK_NULL_HANDLE;
+    VmaAllocationInfo allocationInfo = {};
     VkDeviceSize size = 0;
+};
+
+struct ImageInfo {
+    VkImage image = VK_NULL_HANDLE;
+    VmaAllocation allocation = VK_NULL_HANDLE;
+    VmaAllocationInfo allocationInfo = {};
+    uint32_t width = 0;
+    uint32_t height = 0;
+    VkFormat format = VK_FORMAT_UNDEFINED;
 };
 
 struct BufferSubmission {
@@ -80,6 +90,8 @@ public:
     void destroyBuffer(BufferInfo& bufferInfo);
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
     
+    VmaAllocator getAllocator() const { return allocator; }
+    
     BufferPool createBufferPool(VkDeviceSize bufferSize);
     void destroyBufferPool(BufferPool& pool);
     BufferInfo* acquireBuffer(BufferPool& pool);
@@ -92,11 +104,22 @@ public:
     VkFence createFence(bool signaled = false);
     
     BufferInfo createStagingBuffer(VkDeviceSize size);
+    BufferInfo createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+    BufferInfo createUniformBuffer(VkDeviceSize size);
+    
+    ImageInfo createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, 
+                         VkImageUsageFlags usage, VmaMemoryUsage memoryUsage);
+    void destroyImage(ImageInfo& imageInfo);
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
     VkCommandBuffer beginSingleTimeCommands(bool useTransferQueue = true);
     void endSingleTimeCommands(VkCommandBuffer commandBuffer, bool useTransferQueue = true);
     void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size, 
                    VkDeviceSize srcOffset = 0, VkDeviceSize dstOffset = 0);
     void copyBufferAsync(const TransferOperation& transfer);
+    
+    void* mapBuffer(const BufferInfo& bufferInfo);
+    void unmapBuffer(const BufferInfo& bufferInfo);
     
     VkQueue getGraphicsQueue() const { return graphicsQueue; }
     VkQueue getTransferQueue() const { return transferQueue; }
@@ -130,6 +153,7 @@ private:
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     VkQueue transferQueue = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
+    VmaAllocator allocator = VK_NULL_HANDLE;
     
     QueueFamilyIndices queueFamilyIndices;
     CommandPool graphicsCommandPool;
