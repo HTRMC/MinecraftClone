@@ -229,3 +229,74 @@ std::vector<const char*> VulkanContext::getRequiredExtensions() {
 
     return extensions;
 }
+
+// ---------------- Buffer Management ----------------
+
+BufferInfo VulkanContext::createStorageBuffer(VkDeviceSize size) {
+    BufferInfo bufferInfo;
+    bufferInfo.size = size;
+
+    VkBufferCreateInfo bufferCreateInfo{};
+    bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferCreateInfo.size = size;
+    bufferCreateInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    bufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateBuffer(device, &bufferCreateInfo, nullptr, &bufferInfo.buffer) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create storage buffer!");
+    }
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device, bufferInfo.buffer, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, 
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferInfo.memory) != VK_SUCCESS) {
+        vkDestroyBuffer(device, bufferInfo.buffer, nullptr);
+        throw std::runtime_error("Failed to allocate storage buffer memory!");
+    }
+
+    vkBindBufferMemory(device, bufferInfo.buffer, bufferInfo.memory, 0);
+
+    if (vkMapMemory(device, bufferInfo.memory, 0, size, 0, &bufferInfo.mappedMemory) != VK_SUCCESS) {
+        vkFreeMemory(device, bufferInfo.memory, nullptr);
+        vkDestroyBuffer(device, bufferInfo.buffer, nullptr);
+        throw std::runtime_error("Failed to map storage buffer memory!");
+    }
+
+    Logger::info("Vulkan", "Created storage buffer of size " + std::to_string(size) + " bytes");
+    return bufferInfo;
+}
+
+void VulkanContext::destroyBuffer(BufferInfo& bufferInfo) {
+    if (bufferInfo.mappedMemory) {
+        vkUnmapMemory(device, bufferInfo.memory);
+        bufferInfo.mappedMemory = nullptr;
+    }
+    if (bufferInfo.memory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, bufferInfo.memory, nullptr);
+        bufferInfo.memory = VK_NULL_HANDLE;
+    }
+    if (bufferInfo.buffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device, bufferInfo.buffer, nullptr);
+        bufferInfo.buffer = VK_NULL_HANDLE;
+    }
+    bufferInfo.size = 0;
+}
+
+uint32_t VulkanContext::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("Failed to find suitable memory type!");
+}

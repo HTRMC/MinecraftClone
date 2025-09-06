@@ -6,6 +6,23 @@
 
 class Window;
 
+struct BufferInfo {
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    void* mappedMemory = nullptr;
+    VkDeviceSize size = 0;
+};
+
+struct BufferPool {
+    static constexpr uint32_t BUFFER_COUNT = 3;
+    
+    BufferInfo buffers[BUFFER_COUNT];
+    VkFence fences[BUFFER_COUNT];
+    bool inUse[BUFFER_COUNT] = {false, false, false};
+    uint32_t currentIndex = 0;
+    VkDeviceSize bufferSize = 0;
+};
+
 class VulkanContext {
 public:
     VulkanContext(Window* window);
@@ -13,6 +30,10 @@ public:
 
     void init();
     void cleanup();
+    
+    BufferInfo createStorageBuffer(VkDeviceSize size);
+    void destroyBuffer(BufferInfo& bufferInfo);
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
 private:
     void createInstance();
