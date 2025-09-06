@@ -2,6 +2,7 @@
 #include "VulkanContext.hpp"
 #include <queue>
 #include <memory>
+#include <mutex>
 
 struct SynchronizedTransfer {
     TransferOperation transfer;
