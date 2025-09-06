@@ -9,6 +9,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 class Window;
+class Camera;
 
 struct SwapChainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities;
@@ -24,6 +25,7 @@ public:
     void init();
     void cleanup();
     void render();
+    void setCamera(Camera* camera) { this->camera = camera; }
     
     ChunkRenderer* getChunkRenderer() { return chunkRenderer.get(); }
 
@@ -48,6 +50,7 @@ private:
 private:
     VulkanContext* vulkanContext;
     Window* window;
+    Camera* camera = nullptr;
     
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkSwapchainKHR swapChain = VK_NULL_HANDLE;

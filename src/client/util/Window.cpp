@@ -55,6 +55,14 @@ void Window::create(int w, int h) {
         throw std::runtime_error("Failed to create GLFW window!");
     }
 
+    // Set up input callbacks
+    glfwSetWindowUserPointer(glfwWindow, this);
+    glfwSetKeyCallback(glfwWindow, keyCallback);
+    glfwSetCursorPosCallback(glfwWindow, mouseCallback);
+    
+    // Capture mouse for FPS-style movement
+    glfwSetInputMode(glfwWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
     loadIcons();
     updateTitle();
 }
@@ -100,5 +108,42 @@ bool Window::shouldClose() const {
 }
 
 void Window::pollEvents() {
+    mouseDeltaX = 0.0;
+    mouseDeltaY = 0.0;
     glfwPollEvents();
+}
+
+bool Window::isKeyPressed(int key) const {
+    return pressedKeys.find(key) != pressedKeys.end();
+}
+
+void Window::getMouseDelta(double& xDelta, double& yDelta) {
+    xDelta = mouseDeltaX;
+    yDelta = mouseDeltaY;
+}
+
+void Window::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    Window* windowObj = static_cast<Window*>(glfwGetWindowUserPointer(window));
+    
+    if (action == GLFW_PRESS) {
+        windowObj->pressedKeys.insert(key);
+    } else if (action == GLFW_RELEASE) {
+        windowObj->pressedKeys.erase(key);
+    }
+}
+
+void Window::mouseCallback(GLFWwindow* window, double xpos, double ypos) {
+    Window* windowObj = static_cast<Window*>(glfwGetWindowUserPointer(window));
+    
+    if (windowObj->firstMouse) {
+        windowObj->lastMouseX = xpos;
+        windowObj->lastMouseY = ypos;
+        windowObj->firstMouse = false;
+    }
+    
+    windowObj->mouseDeltaX = xpos - windowObj->lastMouseX;
+    windowObj->mouseDeltaY = windowObj->lastMouseY - ypos; // Reversed since y-coordinates go from bottom to top
+    
+    windowObj->lastMouseX = xpos;
+    windowObj->lastMouseY = ypos;
 }

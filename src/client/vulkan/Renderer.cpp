@@ -1,5 +1,6 @@
 #include "Renderer.hpp"
 #include "client/util/Window.hpp"
+#include "client/util/Camera.hpp"
 #include "Logger.hpp"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
@@ -209,12 +210,7 @@ void Renderer::render() {
 UniformBufferObject Renderer::createUBO() {
     UniformBufferObject ubo{};
     
-    // Create a simple camera looking at the test cube
-    glm::vec3 eye = glm::vec3(2.0f, 2.0f, 2.0f);
-    glm::vec3 center = glm::vec3(8.0f, 8.0f, 8.0f); // Look at block position
-    glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
-    
-    ubo.view = glm::lookAt(eye, center, up);
+    ubo.view = camera->getViewMatrix();
     ubo.proj = glm::perspective(glm::radians(45.0f), 
                                swapChainExtent.width / (float) swapChainExtent.height, 
                                0.1f, 100.0f);

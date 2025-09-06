@@ -24,8 +24,19 @@ void MinecraftClient::run() {
     renderer = std::make_unique<Renderer>(vulkan.get(), window.get());
     renderer->init();
 
+    // Initialize camera at a good starting position
+    camera = std::make_unique<Camera>(glm::vec3(2.0f, 2.0f, 2.0f));
+    renderer->setCamera(camera.get());
+
+    auto lastTime = std::chrono::high_resolution_clock::now();
+    
     while (!window->shouldClose()) {
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
+        lastTime = currentTime;
+        
         window->pollEvents();
+        processInput(deltaTime);
 
         // Render frame
         try {
@@ -66,4 +77,27 @@ std::string MinecraftClient::getWindowTitle() const {
     }
 
     return title.str();
+}
+
+void MinecraftClient::processInput(float deltaTime) {
+    // Process WASD movement
+    if (window->isKeyPressed(GLFW_KEY_W)) {
+        camera->processKeyboard(GLFW_KEY_W, deltaTime);
+    }
+    if (window->isKeyPressed(GLFW_KEY_S)) {
+        camera->processKeyboard(GLFW_KEY_S, deltaTime);
+    }
+    if (window->isKeyPressed(GLFW_KEY_A)) {
+        camera->processKeyboard(GLFW_KEY_A, deltaTime);
+    }
+    if (window->isKeyPressed(GLFW_KEY_D)) {
+        camera->processKeyboard(GLFW_KEY_D, deltaTime);
+    }
+    
+    // Process mouse movement
+    double xDelta, yDelta;
+    window->getMouseDelta(xDelta, yDelta);
+    if (xDelta != 0.0 || yDelta != 0.0) {
+        camera->processMouseMovement(static_cast<float>(xDelta), static_cast<float>(yDelta));
+    }
 }
