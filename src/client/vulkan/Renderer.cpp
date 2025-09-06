@@ -110,11 +110,14 @@ void Renderer::render() {
     VkResult result = vkAcquireNextImageKHR(vulkanContext->getDevice(), swapChain, UINT64_MAX, 
                                            imageAvailableSemaphores[acquireSemaphoreIndex], VK_NULL_HANDLE, &imageIndex);
     
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR) {
         recreateSwapChain();
         return;
     } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        throw std::runtime_error("Failed to acquire swap chain image!");
+        // Log the specific error code and try to recover
+        Logger::warning("Renderer", "vkAcquireNextImageKHR returned error: " + std::to_string(result));
+        recreateSwapChain();
+        return;
     }
     
     vkResetFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame]);
@@ -176,7 +179,7 @@ void Renderer::render() {
     
     result = vkQueuePresentKHR(vulkanContext->getPresentQueue(), &presentInfo);
     
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_SURFACE_LOST_KHR || framebufferResized) {
         framebufferResized = false;
         recreateSwapChain();
         // Reset all tracking after swapchain recreation
@@ -184,7 +187,12 @@ void Renderer::render() {
         std::fill(recordedForImageIndex.begin(), recordedForImageIndex.end(), UINT32_MAX);
         std::fill(lastSubmittedFrame.begin(), lastSubmittedFrame.end(), 0);
     } else if (result != VK_SUCCESS) {
-        throw std::runtime_error("Failed to present swap chain image!");
+        Logger::warning("Renderer", "vkQueuePresentKHR returned error: " + std::to_string(result));
+        // Try to recover by recreating swapchain
+        recreateSwapChain();
+        std::fill(commandBuffersRecorded.begin(), commandBuffersRecorded.end(), false);
+        std::fill(recordedForImageIndex.begin(), recordedForImageIndex.end(), UINT32_MAX);
+        std::fill(lastSubmittedFrame.begin(), lastSubmittedFrame.end(), 0);
     }
     
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
