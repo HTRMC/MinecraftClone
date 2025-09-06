@@ -44,7 +44,7 @@ void VulkanContext::init() {
     
     // Initialize VMA after creating logical device
     VmaAllocatorCreateInfo allocatorInfo{};
-    allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+    allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_4;
     allocatorInfo.physicalDevice = physicalDevice;
     allocatorInfo.device = device;
     allocatorInfo.instance = instance;
@@ -101,7 +101,7 @@ void VulkanContext::createInstance() {
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "CustomEngine";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_3;
+    appInfo.apiVersion = VK_API_VERSION_1_4;
 
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
