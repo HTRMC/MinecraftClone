@@ -52,9 +52,13 @@ struct BlockModel {
 class BlockModelLoader {
 public:
     static BlockModel loadModel(const std::string& modelPath);
+    static BlockModel loadModelWithInheritance(const std::string& modelPath);
     static std::vector<ModelData> generateMeshData(const BlockModel& model);
 
 private:
+    static BlockModel mergeWithParent(const BlockModel& child, const BlockModel& parent);
+    static std::string resolveModelPath(const std::string& modelId);
+    static std::string resolveTextureReference(const std::string& textureRef, const std::unordered_map<std::string, std::string>& textures);
     static glm::vec3 parseVector3(simdjson::dom::array array);
     static std::unordered_map<std::string, BlockFace> parseFaces(simdjson::dom::object facesObj);
     static BlockFace parseFace(simdjson::dom::object faceObj);

@@ -5,6 +5,23 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/transform.hpp>
 
+BlockModel BlockModelLoader::loadModelWithInheritance(const std::string& modelPath) {
+    BlockModel model = loadModel(modelPath);
+    
+    // If this model has a parent, load and merge it
+    if (model.parent.has_value()) {
+        std::string parentPath = resolveModelPath(model.parent.value());
+        try {
+            BlockModel parentModel = loadModelWithInheritance(parentPath); // Recursive call for nested inheritance
+            model = mergeWithParent(model, parentModel);
+        } catch (const std::exception& e) {
+            Logger::warning("BlockModelLoader", "Failed to load parent model '" + model.parent.value() + "': " + std::string(e.what()));
+        }
+    }
+    
+    return model;
+}
+
 BlockModel BlockModelLoader::loadModel(const std::string& modelPath) {
     std::ifstream file(modelPath);
     if (!file.is_open()) {
@@ -369,4 +386,79 @@ glm::vec2 BlockModelLoader::rotateUV(float u, float v, int rotation) {
         case 270: return glm::vec2(v, 1.0f - u);
         default:  return glm::vec2(u, v);
     }
+}
+
+std::string BlockModelLoader::resolveModelPath(const std::string& modelId) {
+    // Handle Minecraft-style model IDs like "minecraft:block/cube"
+    if (modelId.find(':') != std::string::npos) {
+        // Convert "minecraft:block/cube" to "assets/minecraft/models/block/cube.json"
+        size_t colonPos = modelId.find(':');
+        std::string namespace_ = modelId.substr(0, colonPos);
+        std::string path = modelId.substr(colonPos + 1);
+        
+        return "assets/" + namespace_ + "/models/" + path + ".json";
+    } else {
+        // Handle relative paths like "block/cube" - assume minecraft namespace
+        if (modelId.find('/') != std::string::npos) {
+            return "assets/minecraft/models/" + modelId + ".json";
+        } else {
+            // Assume it's already a file path
+            return modelId;
+        }
+    }
+}
+
+BlockModel BlockModelLoader::mergeWithParent(const BlockModel& child, const BlockModel& parent) {
+    BlockModel merged = child;
+    
+    // Inherit ambient occlusion if not specified in child
+    if (!merged.ambientocclusion.has_value() && parent.ambientocclusion.has_value()) {
+        merged.ambientocclusion = parent.ambientocclusion;
+    }
+    
+    // Merge textures - child textures override parent textures
+    for (const auto& [key, value] : parent.textures) {
+        if (merged.textures.find(key) == merged.textures.end()) {
+            merged.textures[key] = value;
+        }
+    }
+    
+    // Resolve texture references (e.g., "#particle" -> actual texture)
+    std::unordered_map<std::string, std::string> resolvedTextures;
+    for (const auto& [key, value] : merged.textures) {
+        resolvedTextures[key] = resolveTextureReference(value, merged.textures);
+    }
+    merged.textures = resolvedTextures;
+    
+    // If child has no elements, inherit parent's elements
+    if (merged.elements.empty() && !parent.elements.empty()) {
+        merged.elements = parent.elements;
+    }
+    
+    // Clear parent reference as it's been resolved
+    merged.parent.reset();
+    
+    Logger::debug("BlockModelLoader", "Merged model with parent - textures: " + std::to_string(merged.textures.size()) + 
+                  ", elements: " + std::to_string(merged.elements.size()));
+    
+    return merged;
+}
+
+std::string BlockModelLoader::resolveTextureReference(const std::string& textureRef, const std::unordered_map<std::string, std::string>& textures) {
+    if (textureRef.empty() || textureRef[0] != '#') {
+        return textureRef; // Not a reference, return as-is
+    }
+    
+    // Remove the '#' prefix
+    std::string key = textureRef.substr(1);
+    
+    // Look up the reference
+    auto it = textures.find(key);
+    if (it != textures.end()) {
+        // Recursively resolve in case the referenced texture is also a reference
+        return resolveTextureReference(it->second, textures);
+    }
+    
+    Logger::warning("BlockModelLoader", "Unresolved texture reference: " + textureRef);
+    return textureRef; // Return original if not found
 }

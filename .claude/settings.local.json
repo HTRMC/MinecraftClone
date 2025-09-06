@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/c/Users/HTRMC/Desktop/decompiled-1.21.8/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -316,8 +316,8 @@ void ChunkRenderer::destroyBuffer(BufferInfo& buffer) {
 
 void ChunkRenderer::addTestCubeFromJSON() {
     try {
-        // Load the cube model from JSON
-        BlockModel model = BlockModelLoader::loadModel("assets/minecraft/models/block/cube.json");
+        // Load the cube model from JSON with inheritance support
+        BlockModel model = BlockModelLoader::loadModelWithInheritance("assets/minecraft/models/block/stone.json");
         
         // Generate mesh data from the model
         std::vector<ModelData> meshData = BlockModelLoader::generateMeshData(model);
