@@ -21,7 +21,7 @@ void ChunkRenderer::init() {
     createDescriptorSet();
     
     // Add test data for initial rendering
-    addTestCube();
+    addTestCubeFromJSON();
     
     initialized = true;
     Logger::info("ChunkRenderer", "Initialized chunk renderer");
@@ -311,5 +311,68 @@ void ChunkRenderer::destroyBuffer(BufferInfo& buffer) {
     if (buffer.memory != VK_NULL_HANDLE) {
         vkFreeMemory(vulkanContext->getDevice(), buffer.memory, nullptr);
         buffer.memory = VK_NULL_HANDLE;
+    }
+}
+
+void ChunkRenderer::addTestCubeFromJSON() {
+    try {
+        // Load the cube model from JSON
+        BlockModel model = BlockModelLoader::loadModel("assets/minecraft/models/block/cube.json");
+        
+        // Generate mesh data from the model
+        std::vector<ModelData> meshData = BlockModelLoader::generateMeshData(model);
+        
+        RenderData testData;
+        
+        // Create a single test chunk at origin
+        testData.chunkCoords.push_back(glm::ivec4(0, 0, 0, 0));
+        
+        // Define different colors for each face for debugging
+        uint32_t faceColors[6][3] = {
+            {31, 0, 0},   // West: Red
+            {0, 31, 0},   // East: Green  
+            {0, 0, 31},   // North: Blue
+            {31, 31, 0},  // South: Yellow
+            {31, 0, 31},  // Down: Magenta
+            {0, 31, 31}   // Up: Cyan
+        };
+        
+        // Process each face from the loaded model
+        for (size_t i = 0; i < meshData.size() && i < 6; ++i) {
+            testData.models.push_back(meshData[i]);
+            
+            // Create lighting data for this face with different colors
+            uint32_t ao = 31;
+            uint32_t skyLight = 31;
+            uint32_t blockLight = 0;
+            uint32_t r = faceColors[i][0];
+            uint32_t g = faceColors[i][1]; 
+            uint32_t b = faceColors[i][2];
+            uint32_t packedLight = ao | (skyLight << 5) | (blockLight << 10) | (r << 15) | (g << 20) | (b << 25);
+            
+            LightData lightData = {};
+            lightData.vertex0 = packedLight;
+            lightData.vertex1 = packedLight;
+            lightData.vertex2 = packedLight;
+            lightData.vertex3 = packedLight;
+            testData.lights.push_back(lightData);
+            
+            // Create face data referencing this model and lighting
+            FaceData face = {};
+            // Pack position: block at (0, 0, 0) in chunk, lightIndex = i
+            face.positionAndFlags = (0) | (0 << 5) | (0 << 10) | (static_cast<uint32_t>(i) << 16);
+            face.blockAndQuad = (static_cast<uint32_t>(i)) | (static_cast<uint32_t>(i) << 16);
+            face.chunkIndex = 0;
+            testData.faces.push_back(face);
+        }
+        
+        // Update render data
+        updateRenderData(testData);
+        
+        Logger::info("ChunkRenderer", "Added test cube from JSON with " + std::to_string(testData.faces.size()) + " faces, " +
+                     std::to_string(testData.models.size()) + " models, " + std::to_string(testData.lights.size()) + " lights");
+                     
+    } catch (const std::exception& e) {
+        Logger::error("ChunkRenderer", "Failed to load cube from JSON: " + std::string(e.what()));
     }
 }

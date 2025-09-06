@@ -3,6 +3,7 @@
 #include "DescriptorManager.hpp"
 #include "MeshShaderPipeline.hpp"
 #include "MeshShaderData.hpp"
+#include "client/resource/BlockModelLoader.hpp"
 #include <mutex>
 #include <vector>
 #include <atomic>
@@ -39,6 +40,7 @@ public:
     
     // Add test data for initial rendering
     void addTestCube();
+    void addTestCubeFromJSON();
 
 private:
     void createBuffers();
