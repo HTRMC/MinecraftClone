@@ -45,31 +45,37 @@ void DescriptorManager::cleanup() {
 }
 
 void DescriptorManager::createDescriptorSetLayout() {
-    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
     
     // Binding 0: UBO (matrices)
     bindings[0].binding = static_cast<uint32_t>(DescriptorBinding::UBO);
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_MESH_BIT_NV | VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[0].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT;
     
     // Binding 1: FaceData storage buffer
     bindings[1].binding = static_cast<uint32_t>(DescriptorBinding::FACE_DATA);
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_MESH_BIT_NV;
+    bindings[1].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
     
     // Binding 2: ModelData storage buffer
     bindings[2].binding = static_cast<uint32_t>(DescriptorBinding::MODEL_DATA);
     bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = VK_SHADER_STAGE_MESH_BIT_NV;
+    bindings[2].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
     
     // Binding 3: LightData storage buffer
     bindings[3].binding = static_cast<uint32_t>(DescriptorBinding::LIGHT_DATA);
     bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[3].descriptorCount = 1;
-    bindings[3].stageFlags = VK_SHADER_STAGE_MESH_BIT_NV;
+    bindings[3].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
+    
+    // Binding 4: ChunkCoordBuffer storage buffer
+    bindings[4].binding = 4;
+    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[4].descriptorCount = 1;
+    bindings[4].stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
     
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -103,9 +109,9 @@ void DescriptorManager::createDescriptorPool() {
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = MAX_DESCRIPTOR_SETS;
     
-    // Pool for storage buffers (FaceData, ModelData, LightData)
+    // Pool for storage buffers (FaceData, ModelData, LightData, ChunkCoordBuffer)
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = MAX_DESCRIPTOR_SETS * 3; // 3 storage buffers per set
+    poolSizes[1].descriptorCount = MAX_DESCRIPTOR_SETS * 4; // 4 storage buffers per set
     
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -139,8 +145,9 @@ void DescriptorManager::updateDescriptorSet(VkDescriptorSet descriptorSet,
                                            VkBuffer uboBuffer,
                                            VkBuffer faceDataBuffer,
                                            VkBuffer modelDataBuffer,
-                                           VkBuffer lightDataBuffer) {
-    std::array<VkWriteDescriptorSet, 4> descriptorWrites{};
+                                           VkBuffer lightDataBuffer,
+                                           VkBuffer chunkCoordBuffer) {
+    std::array<VkWriteDescriptorSet, 5> descriptorWrites{};
     
     // UBO descriptor
     VkDescriptorBufferInfo uboBufferInfo{};
@@ -197,6 +204,20 @@ void DescriptorManager::updateDescriptorSet(VkDescriptorSet descriptorSet,
     descriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     descriptorWrites[3].descriptorCount = 1;
     descriptorWrites[3].pBufferInfo = &lightDataBufferInfo;
+    
+    // ChunkCoordBuffer storage buffer descriptor
+    VkDescriptorBufferInfo chunkCoordBufferInfo{};
+    chunkCoordBufferInfo.buffer = chunkCoordBuffer;
+    chunkCoordBufferInfo.offset = 0;
+    chunkCoordBufferInfo.range = VK_WHOLE_SIZE;
+    
+    descriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[4].dstSet = descriptorSet;
+    descriptorWrites[4].dstBinding = 4;
+    descriptorWrites[4].dstArrayElement = 0;
+    descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorWrites[4].descriptorCount = 1;
+    descriptorWrites[4].pBufferInfo = &chunkCoordBufferInfo;
     
     vkUpdateDescriptorSets(vulkanContext->getDevice(), static_cast<uint32_t>(descriptorWrites.size()),
                           descriptorWrites.data(), 0, nullptr);

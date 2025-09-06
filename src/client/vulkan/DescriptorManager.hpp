@@ -18,7 +18,8 @@ public:
                            VkBuffer uboBuffer,
                            VkBuffer faceDataBuffer,
                            VkBuffer modelDataBuffer, 
-                           VkBuffer lightDataBuffer);
+                           VkBuffer lightDataBuffer,
+                           VkBuffer chunkCoordBuffer);
     
     BufferInfo createUniformBuffer();
     void updateUniformBuffer(BufferInfo& uboBuffer, const UniformBufferObject& ubo);
