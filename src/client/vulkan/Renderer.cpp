@@ -36,9 +36,10 @@ void Renderer::init() {
     chunkRenderer = std::make_unique<ChunkRenderer>(vulkanContext, descriptorManager.get(), meshPipeline.get());
     chunkRenderer->init();
     
-    // Create sync objects
-    imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-    renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+    // Create sync objects - one set per swapchain image to avoid reuse issues
+    size_t swapchainImageCount = swapChainImages.size();
+    imageAvailableSemaphores.resize(swapchainImageCount);
+    renderFinishedSemaphores.resize(swapchainImageCount);
     inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
     
     VkSemaphoreCreateInfo semaphoreInfo{};
@@ -48,11 +49,18 @@ void Renderer::init() {
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    // Create semaphores per swapchain image
+    for (size_t i = 0; i < swapchainImageCount; i++) {
         if (vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
-            vkCreateFence(vulkanContext->getDevice(), &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create synchronization objects for a frame!");
+            vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create synchronization objects for swapchain images!");
+        }
+    }
+    
+    // Create fences per frame in flight
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        if (vkCreateFence(vulkanContext->getDevice(), &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create synchronization objects for frames!");
         }
     }
     
@@ -65,9 +73,12 @@ void Renderer::cleanup() {
     
     vkDeviceWaitIdle(vulkanContext->getDevice());
     
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    for (size_t i = 0; i < imageAvailableSemaphores.size(); i++) {
         vkDestroySemaphore(vulkanContext->getDevice(), renderFinishedSemaphores[i], nullptr);
         vkDestroySemaphore(vulkanContext->getDevice(), imageAvailableSemaphores[i], nullptr);
+    }
+    
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroyFence(vulkanContext->getDevice(), inFlightFences[i], nullptr);
     }
     
@@ -91,8 +102,10 @@ void Renderer::render() {
     vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
     
     uint32_t imageIndex;
+    // Use currentFrame % imageAvailableSemaphores.size() to cycle through available semaphores
+    uint32_t acquireSemaphoreIndex = currentFrame % imageAvailableSemaphores.size();
     VkResult result = vkAcquireNextImageKHR(vulkanContext->getDevice(), swapChain, UINT64_MAX, 
-                                           imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+                                           imageAvailableSemaphores[acquireSemaphoreIndex], VK_NULL_HANDLE, &imageIndex);
     
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         recreateSwapChain();
@@ -154,7 +167,7 @@ void Renderer::render() {
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     
-    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
+    VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[acquireSemaphoreIndex]};
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
     submitInfo.waitSemaphoreCount = 1;
     submitInfo.pWaitSemaphores = waitSemaphores;
@@ -163,7 +176,7 @@ void Renderer::render() {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
     
-    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
+    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[imageIndex]};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
     
