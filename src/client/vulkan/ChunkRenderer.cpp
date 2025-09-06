@@ -153,14 +153,14 @@ void ChunkRenderer::addTestCube() {
         }
     };
     
-    // Define different colors for each face for debugging
+    // Define white lighting for proper texture display
     uint32_t faceColors[6][3] = {
-        {31, 0, 0},   // Left: Red
-        {0, 31, 0},   // Right: Green  
-        {0, 0, 31},   // Front: Blue
-        {31, 31, 0},  // Back: Yellow
-        {31, 0, 31},  // Bottom: Magenta
-        {0, 31, 31}   // Top: Cyan
+        {31, 31, 31},   // Left: White
+        {31, 31, 31},   // Right: White  
+        {31, 31, 31},   // Front: White
+        {31, 31, 31},   // Back: White
+        {31, 31, 31},   // Bottom: White
+        {31, 31, 31}    // Top: White
     };
     
     // Create model data for each face (6 quads)
@@ -305,14 +305,14 @@ void ChunkRenderer::addTestCubeFromJSON() {
         // Create a single test chunk at origin
         testData.chunkCoords.push_back(glm::ivec4(0, 0, 0, 0));
         
-        // Define different colors for each face for debugging
+        // Use white lighting for proper texture display
         uint32_t faceColors[6][3] = {
-            {31, 0, 0},   // West: Red
-            {0, 31, 0},   // East: Green  
-            {0, 0, 31},   // North: Blue
-            {31, 31, 0},  // South: Yellow
-            {31, 0, 31},  // Down: Magenta
-            {0, 31, 31}   // Up: Cyan
+            {31, 31, 31},   // West: White
+            {31, 31, 31},   // East: White  
+            {31, 31, 31},   // North: White
+            {31, 31, 31},   // South: White
+            {31, 31, 31},   // Down: White
+            {31, 31, 31}    // Up: White
         };
         
         // Process each face from the loaded model

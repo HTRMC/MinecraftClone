@@ -92,44 +92,56 @@ const TextureEntry* TextureManager::getTextureInfo(uint32_t textureId) const {
 }
 
 std::vector<uint8_t> TextureManager::loadPNG(const std::string& path, int& width, int& height) {
-    std::ifstream file(path, std::ios::binary);
+    FILE* file = fopen(path.c_str(), "rb");
     if (!file) {
         throw std::runtime_error("Failed to open PNG file: " + path);
     }
-
-    std::vector<uint8_t> data((std::istreambuf_iterator<char>(file)),
-                              std::istreambuf_iterator<char>());
-    file.close();
-
+    
     spng_ctx* ctx = spng_ctx_new(0);
     if (!ctx) {
+        fclose(file);
         throw std::runtime_error("Failed to create SPNG context");
     }
-
-    spng_set_png_buffer(ctx, data.data(), data.size());
-
+    
+    spng_set_png_file(ctx, file);
+    
     spng_ihdr ihdr;
-    if (spng_get_ihdr(ctx, &ihdr) != 0) {
+    int ret = spng_get_ihdr(ctx, &ihdr);
+    if (ret) {
         spng_ctx_free(ctx);
-        throw std::runtime_error("Failed to get PNG header");
+        fclose(file);
+        throw std::runtime_error("Failed to get PNG header: " + std::string(spng_strerror(ret)));
     }
-
+    
     width = ihdr.width;
     height = ihdr.height;
-
+    
+    Logger::debug("TextureManager", "PNG info: " + std::to_string(ihdr.width) + "x" + std::to_string(ihdr.height) + 
+                  ", bit_depth=" + std::to_string(ihdr.bit_depth) + ", color_type=" + std::to_string(ihdr.color_type));
+    
+    int output_format = SPNG_FMT_RGBA8;
+    int decode_flags = SPNG_DECODE_TRNS;
+    
     size_t out_size;
-    if (spng_decoded_image_size(ctx, SPNG_FMT_RGBA8, &out_size) != 0) {
+    ret = spng_decoded_image_size(ctx, output_format, &out_size);
+    if (ret) {
         spng_ctx_free(ctx);
-        throw std::runtime_error("Failed to get decoded image size");
+        fclose(file);
+        throw std::runtime_error("Failed to get decoded image size: " + std::string(spng_strerror(ret)));
     }
-
+    
     std::vector<uint8_t> out(out_size);
-    if (spng_decode_image(ctx, out.data(), out.size(), SPNG_FMT_RGBA8, 0) != 0) {
+    ret = spng_decode_image(ctx, out.data(), out_size, output_format, decode_flags);
+    if (ret) {
         spng_ctx_free(ctx);
-        throw std::runtime_error("Failed to decode PNG image");
+        fclose(file);
+        throw std::runtime_error("Failed to decode PNG image: " + std::string(spng_strerror(ret)));
     }
-
+    
     spng_ctx_free(ctx);
+    fclose(file);
+    
+    Logger::info("TextureManager", "Loaded PNG: " + path + " (" + std::to_string(width) + "x" + std::to_string(height) + ")");
     return out;
 }
 
