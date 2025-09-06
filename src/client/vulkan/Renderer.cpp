@@ -100,7 +100,9 @@ void Renderer::cleanup() {
 void Renderer::render() {
     if (!initialized) return;
     
-    // Acquire image first to avoid unnecessary fence waiting
+    // Wait for fence first to ensure previous work is done (critical for semaphore safety)
+    vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+    
     uint32_t imageIndex;
     uint32_t acquireSemaphoreIndex = currentFrame % imageAvailableSemaphores.size();
     VkResult result = vkAcquireNextImageKHR(vulkanContext->getDevice(), swapChain, UINT64_MAX, 
@@ -113,26 +115,32 @@ void Renderer::render() {
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
     
-    // Only wait for fence after we know we need to render
-    vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
     vkResetFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame]);
     
     // Check if we need to update anything (camera changed or data changed)
     bool cameraChanged = camera && camera->hasChanged();
     bool dataChanged = chunkRenderer && chunkRenderer->hasDataChanged();
     
-    // Only reset and record command buffer if something changed
-    if (cameraChanged || dataChanged || !commandBuffersRecorded) {
+    // Check if we need to re-record this frame's command buffer
+    bool needsRecording = cameraChanged || dataChanged || 
+                         !commandBuffersRecorded[currentFrame] || 
+                         recordedForImageIndex[currentFrame] != imageIndex;
+    
+    if (needsRecording) {
         vkResetCommandBuffer(commandBuffers[currentFrame], 0);
         
         // Record static commands (render pass setup, viewport, etc.)
         recordStaticCommandBuffer(commandBuffers[currentFrame], imageIndex);
         
-        // Record dynamic commands (UBO updates, draw calls)
+        // Record dynamic commands (UBO updates, draw calls) 
         updateDynamicCommands(commandBuffers[currentFrame]);
         
-        commandBuffersRecorded = true;
+        commandBuffersRecorded[currentFrame] = true;
+        recordedForImageIndex[currentFrame] = imageIndex;
     }
+    
+    // Track that we're using this semaphore in this frame
+    lastSubmittedFrame[acquireSemaphoreIndex] = frameNumber;
     
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -169,12 +177,16 @@ void Renderer::render() {
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
         framebufferResized = false;
         recreateSwapChain();
-        commandBuffersRecorded = false; // Force re-recording after swapchain recreation
+        // Reset all tracking after swapchain recreation
+        std::fill(commandBuffersRecorded.begin(), commandBuffersRecorded.end(), false);
+        std::fill(recordedForImageIndex.begin(), recordedForImageIndex.end(), UINT32_MAX);
+        std::fill(lastSubmittedFrame.begin(), lastSubmittedFrame.end(), 0);
     } else if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to present swap chain image!");
     }
     
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+    frameNumber++;
 }
 
 UniformBufferObject Renderer::createUBO() {
@@ -327,7 +339,9 @@ void Renderer::createFramebuffers() {
 
 void Renderer::createCommandBuffers() {
     commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-    staticCommandsRecorded.resize(swapChainImages.size(), false);
+    commandBuffersRecorded.resize(MAX_FRAMES_IN_FLIGHT, false);
+    recordedForImageIndex.resize(MAX_FRAMES_IN_FLIGHT, UINT32_MAX);
+    lastSubmittedFrame.resize(swapChainImages.size(), 0);
     
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;

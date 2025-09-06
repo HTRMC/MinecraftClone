@@ -71,6 +71,7 @@ private:
     std::vector<VkFence> inFlightFences;
     
     uint32_t currentFrame = 0;
+    uint64_t frameNumber = 0;
     static const int MAX_FRAMES_IN_FLIGHT = 2;
     
     std::unique_ptr<ShaderManager> shaderManager;
@@ -80,6 +81,7 @@ private:
     
     bool initialized = false;
     bool framebufferResized = false;
-    bool commandBuffersRecorded = false;
-    std::vector<bool> staticCommandsRecorded;
+    std::vector<bool> commandBuffersRecorded;
+    std::vector<uint32_t> recordedForImageIndex;
+    std::vector<uint64_t> lastSubmittedFrame;
 };
