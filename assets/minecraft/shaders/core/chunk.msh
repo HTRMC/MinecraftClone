@@ -9,7 +9,7 @@ layout(binding = 0) uniform UniformBufferObject {
 // Face Buffer structure - separate indices for shared data
 struct FaceData {
     uint positionAndFlags;         // x(5) + y(5) + z(5) + isBackFace(1) + lightIndex(16)
-    uint blockAndQuad;             // texture(16) + quadIndex(16)
+    uint blockAndQuad;             // quadIndex(16) + texture(16)
     uint chunkIndex;               // chunk index
 };
 

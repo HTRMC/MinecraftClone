@@ -336,7 +336,7 @@ void ChunkRenderer::addTestCubeFromJSON() {
             FaceData face = {};
             // Pack position: block at (0, 0, 0) in chunk, lightIndex = i
             face.positionAndFlags = (0) | (0 << 5) | (0 << 10) | (static_cast<uint32_t>(i) << 16);
-            face.blockAndQuad = (static_cast<uint32_t>(i)) | (static_cast<uint32_t>(i) << 16);
+            face.blockAndQuad = (static_cast<uint32_t>(i)) | (0 << 16);
             face.chunkIndex = 0;
             testData.faces.push_back(face);
         }
@@ -354,15 +354,9 @@ void ChunkRenderer::addTestCubeFromJSON() {
 
 void ChunkRenderer::loadDefaultTextures() {
     try {
-        // Load stone texture for index 0
+        // Load a basic stone texture as default (texture ID 0)
         textureManager->loadTexture("assets/minecraft/textures/block/stone.png");
-        
-        // Load duplicate stone textures for indices 1-5
-        for (int i = 1; i < 6; i++) {
-            textureManager->loadTextureDuplicate("assets/minecraft/textures/block/stone.png");
-        }
-        
-        Logger::info("ChunkRenderer", "Loaded default textures for all 6 face indices");
+        Logger::info("ChunkRenderer", "Loaded default textures");
     } catch (const std::exception& e) {
         Logger::warning("ChunkRenderer", "Failed to load default texture: " + std::string(e.what()));
     }
