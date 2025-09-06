@@ -1,6 +1,7 @@
 #pragma once
 #include "VulkanContext.hpp"
 #include "DescriptorManager.hpp"
+#include "TextureManager.hpp"
 #include "MeshShaderPipeline.hpp"
 #include "MeshShaderData.hpp"
 #include "client/resource/BlockModelLoader.hpp"
@@ -27,7 +28,8 @@ class ChunkRenderer {
 public:
     ChunkRenderer(VulkanContext* vulkanContext, 
                   DescriptorManager* descriptorManager,
-                  MeshShaderPipeline* pipeline);
+                  MeshShaderPipeline* pipeline,
+                  TextureManager* textureManager);
     ~ChunkRenderer();
     
     void init();
@@ -46,6 +48,7 @@ private:
     void createBuffers();
     void updateBuffers();
     void createDescriptorSet();
+    void loadDefaultTextures();
     
     BufferInfo createStorageBuffer(size_t size, const void* data = nullptr);
     void updateStorageBuffer(BufferInfo& buffer, const void* data, size_t size);
@@ -55,6 +58,7 @@ private:
     VulkanContext* vulkanContext;
     DescriptorManager* descriptorManager;
     MeshShaderPipeline* pipeline;
+    TextureManager* textureManager;
     
     // Thread-safe render data
     std::mutex renderDataMutex;

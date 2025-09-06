@@ -33,16 +33,22 @@ void Renderer::init() {
     descriptorManager = std::make_unique<DescriptorManager>(vulkanContext);
     descriptorManager->init();
     
+    textureManager = std::make_unique<TextureManager>(vulkanContext);
+    textureManager->init();
+    
     meshPipeline = std::make_unique<MeshShaderPipeline>(vulkanContext, shaderManager.get(), descriptorManager.get());
     meshPipeline->init(renderPass);
     
-    chunkRenderer = std::make_unique<ChunkRenderer>(vulkanContext, descriptorManager.get(), meshPipeline.get());
+    chunkRenderer = std::make_unique<ChunkRenderer>(vulkanContext, descriptorManager.get(), meshPipeline.get(), textureManager.get());
     chunkRenderer->init();
     
     // Create sync objects - one set per frame in flight for proper synchronization
     imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
     renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
     inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+    
+    // Create per-swapchain-image render finished semaphores
+    perImageRenderFinishedSemaphores.resize(swapChainImages.size());
     
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -51,11 +57,18 @@ void Renderer::init() {
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     
-    // Create semaphores per frame in flight
+    // Create semaphores per frame in flight (for imageAvailable)
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
             vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create synchronization objects for frames!");
+        }
+    }
+    
+    // Create per-swapchain-image render finished semaphores
+    for (size_t i = 0; i < swapChainImages.size(); i++) {
+        if (vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &perImageRenderFinishedSemaphores[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create per-image render finished semaphores!");
         }
     }
     
@@ -80,12 +93,17 @@ void Renderer::cleanup() {
         vkDestroySemaphore(vulkanContext->getDevice(), imageAvailableSemaphores[i], nullptr);
     }
     
+    for (size_t i = 0; i < perImageRenderFinishedSemaphores.size(); i++) {
+        vkDestroySemaphore(vulkanContext->getDevice(), perImageRenderFinishedSemaphores[i], nullptr);
+    }
+    
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         vkDestroyFence(vulkanContext->getDevice(), inFlightFences[i], nullptr);
     }
     
     chunkRenderer.reset();
     meshPipeline.reset();
+    textureManager.reset();
     descriptorManager.reset();
     shaderManager.reset();
     
@@ -104,6 +122,12 @@ void Renderer::render() {
     // Wait for fence first to ensure previous work is done (critical for semaphore safety)
     VkResult fenceWaitResult = vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
     if (fenceWaitResult != VK_SUCCESS) {
+        if (fenceWaitResult == VK_ERROR_DEVICE_LOST) {
+            Logger::error("Renderer", "Device lost during fence wait! Attempting recovery...");
+            // Try to recreate the swapchain which may help recover
+            recreateSwapChain();
+            return;
+        }
         Logger::error("Renderer", "Failed to wait for fence: " + std::to_string(fenceWaitResult));
         return;
     }
@@ -169,12 +193,17 @@ void Renderer::render() {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
     
-    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
+    VkSemaphore signalSemaphores[] = {perImageRenderFinishedSemaphores[imageIndex]};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
     
     VkResult submitResult = vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, inFlightFences[currentFrame]);
     if (submitResult != VK_SUCCESS) {
+        if (submitResult == VK_ERROR_DEVICE_LOST) {
+            Logger::error("Renderer", "Device lost during queue submit! Attempting recovery...");
+            recreateSwapChain();
+            return;
+        }
         Logger::error("Renderer", "Failed to submit draw command buffer: " + std::to_string(submitResult));
         return;
     }
@@ -599,6 +628,11 @@ void Renderer::recreateSwapChain() {
     
     vkDeviceWaitIdle(vulkanContext->getDevice());
     
+    // Clean up old per-image render finished semaphores
+    for (size_t i = 0; i < perImageRenderFinishedSemaphores.size(); i++) {
+        vkDestroySemaphore(vulkanContext->getDevice(), perImageRenderFinishedSemaphores[i], nullptr);
+    }
+    
     cleanupSwapChain();
     
     createSwapChain();
@@ -606,6 +640,18 @@ void Renderer::recreateSwapChain() {
     createDepthResources();
     createRenderPass();
     createFramebuffers();
+    
+    // Recreate per-swapchain-image render finished semaphores with new size
+    perImageRenderFinishedSemaphores.resize(swapChainImages.size());
+    
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    
+    for (size_t i = 0; i < swapChainImages.size(); i++) {
+        if (vkCreateSemaphore(vulkanContext->getDevice(), &semaphoreInfo, nullptr, &perImageRenderFinishedSemaphores[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to recreate per-image render finished semaphores!");
+        }
+    }
     
     // Recreate mesh pipeline with new render pass
     if (meshPipeline) {

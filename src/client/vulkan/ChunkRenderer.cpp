@@ -5,8 +5,9 @@
 
 ChunkRenderer::ChunkRenderer(VulkanContext* vulkanContext, 
                              DescriptorManager* descriptorManager,
-                             MeshShaderPipeline* pipeline)
-    : vulkanContext(vulkanContext), descriptorManager(descriptorManager), pipeline(pipeline) {
+                             MeshShaderPipeline* pipeline,
+                             TextureManager* textureManager)
+    : vulkanContext(vulkanContext), descriptorManager(descriptorManager), pipeline(pipeline), textureManager(textureManager) {
 }
 
 ChunkRenderer::~ChunkRenderer() {
@@ -19,6 +20,15 @@ void ChunkRenderer::init() {
     uboBuffer = descriptorManager->createUniformBuffer();
     createBuffers();
     createDescriptorSet();
+    
+    // Load default textures to prevent empty texture array
+    loadDefaultTextures();
+    
+    // Initial descriptor set update with textures
+    descriptorManager->updateDescriptorSet(descriptorSet, uboBuffer.buffer,
+                                         faceBuffer.buffer, modelBuffer.buffer,
+                                         lightBuffer.buffer, chunkCoordBuffer.buffer,
+                                         textureManager);
     
     // Add test data for initial rendering
     addTestCubeFromJSON();
@@ -211,6 +221,9 @@ void ChunkRenderer::createBuffers() {
 void ChunkRenderer::updateBuffers() {
     if (currentRenderData.faces.empty()) return;
     
+    // Ensure GPU is idle before updating buffers to prevent device lost
+    vkDeviceWaitIdle(vulkanContext->getDevice());
+    
     // Only recreate buffers if size changed, otherwise just update data
     size_t faceSize = currentRenderData.faces.size() * sizeof(FaceData);
     if (faceBuffer.size != faceSize) {
@@ -247,7 +260,8 @@ void ChunkRenderer::updateBuffers() {
     // Update descriptor set if any buffers were recreated (size changed)
     descriptorManager->updateDescriptorSet(descriptorSet, uboBuffer.buffer,
                                          faceBuffer.buffer, modelBuffer.buffer,
-                                         lightBuffer.buffer, chunkCoordBuffer.buffer);
+                                         lightBuffer.buffer, chunkCoordBuffer.buffer,
+                                         textureManager);
 }
 
 void ChunkRenderer::createDescriptorSet() {
@@ -338,5 +352,15 @@ void ChunkRenderer::addTestCubeFromJSON() {
                      
     } catch (const std::exception& e) {
         Logger::error("ChunkRenderer", "Failed to load cube from JSON: " + std::string(e.what()));
+    }
+}
+
+void ChunkRenderer::loadDefaultTextures() {
+    try {
+        // Load a basic stone texture as default (texture ID 0)
+        textureManager->loadTexture("assets/minecraft/textures/block/stone.png");
+        Logger::info("ChunkRenderer", "Loaded default textures");
+    } catch (const std::exception& e) {
+        Logger::warning("ChunkRenderer", "Failed to load default texture: " + std::string(e.what()));
     }
 }

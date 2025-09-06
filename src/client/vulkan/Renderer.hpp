@@ -3,6 +3,7 @@
 #include "ShaderManager.hpp"
 #include "DescriptorManager.hpp"
 #include "MeshShaderPipeline.hpp"
+#include "TextureManager.hpp"
 #include "ChunkRenderer.hpp"
 #include <memory>
 #include <glm/glm.hpp>
@@ -79,12 +80,16 @@ private:
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
     
+    // Per-swapchain-image semaphores for proper synchronization
+    std::vector<VkSemaphore> perImageRenderFinishedSemaphores;
+    
     uint32_t currentFrame = 0;
     uint64_t frameNumber = 0;
     static const int MAX_FRAMES_IN_FLIGHT = 2;
     
     std::unique_ptr<ShaderManager> shaderManager;
     std::unique_ptr<DescriptorManager> descriptorManager;
+    std::unique_ptr<TextureManager> textureManager;
     std::unique_ptr<MeshShaderPipeline> meshPipeline;
     std::unique_ptr<ChunkRenderer> chunkRenderer;
     
