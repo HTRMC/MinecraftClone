@@ -114,8 +114,8 @@ void ChunkRenderer::addTestCube() {
     
     // Create test face data
     FaceData face = {};
-    // Pack position: block at (8, 8, 8) in chunk
-    face.positionAndFlags = (8) | (8 << 5) | (8 << 10) | (0 << 16); // lightIndex = 0
+    // Pack position: block at (0, 0, 0) in chunk (ground level)
+    face.positionAndFlags = (0) | (0 << 5) | (0 << 10) | (0 << 16); // lightIndex = 0
     face.blockAndQuad = (0) | (0 << 16); // quadIndex = 0, textureIndex = 0
     face.chunkIndex = 0;
     
