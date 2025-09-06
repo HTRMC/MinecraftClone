@@ -8,6 +8,9 @@
 #undef ERROR
 #endif
 
+std::unordered_map<std::string, int> Logger::messageCount;
+std::mutex Logger::messageCountMutex;
+
 void Logger::init() {
 #ifdef _WIN32
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -23,11 +26,16 @@ static const char* colorForLevel(LogLevel level) {
         case LogLevel::INFO:    return "\033[32m"; // green
         case LogLevel::WARNING: return "\033[33m"; // yellow
         case LogLevel::ERROR:   return "\033[31m"; // red
+        case LogLevel::DEBUG:   return "\033[95m"; // bright magenta
         default:                return "\033[37m"; // white
     }
 }
 
 void Logger::log(LogLevel level, const std::string& subsystem, const std::string& message) {
+    if (level == LogLevel::DEBUG && !shouldLogMessage(message)) {
+        return;
+    }
+    
     auto now = std::chrono::system_clock::now();
     auto time = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
@@ -54,4 +62,24 @@ void Logger::warning(const std::string& subsystem, const std::string& message) {
 
 void Logger::error(const std::string& subsystem, const std::string& message) {
     log(LogLevel::ERROR, subsystem, message);
+}
+
+void Logger::debug(const std::string& subsystem, const std::string& message) {
+    log(LogLevel::DEBUG, subsystem, message);
+}
+
+bool Logger::shouldLogMessage(const std::string& message) {
+    std::lock_guard<std::mutex> lock(messageCountMutex);
+    
+    auto& count = messageCount[message];
+    count++;
+    
+    if (count <= MAX_REPEAT_MESSAGES) {
+        return true;
+    } else if (count == MAX_REPEAT_MESSAGES + 1) {
+        std::cout << "\033[95m[DEBUG] Message suppressed: \"" << message 
+                  << "\" (shown " << MAX_REPEAT_MESSAGES << " times)\033[0m" << std::endl;
+    }
+    
+    return false;
 }
