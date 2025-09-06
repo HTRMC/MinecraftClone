@@ -9,7 +9,7 @@ layout(binding = 0) uniform UniformBufferObject {
 // Face Buffer structure - unique per face
 struct FaceData {
     uint positionAndFlags;         // x(5) + y(5) + z(5) + isBackFace(1) + lightIndex(16)
-    uint blockAndQuad;             // quadIndex(16) + texture(16)
+    uint blockAndQuad;             // texture(16) + quadIndex(16)
     uint chunkIndex;               // chunk index
 };
 
@@ -46,10 +46,6 @@ layout(std430, binding = 4) readonly buffer ChunkCoordBuffer {
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 128, max_primitives = 64) out;
-
-layout(location = 0) out vec3 fragColor[];
-layout(location = 1) out vec2 fragUV[];
-layout(location = 2) out flat uint fragTextureIndex[];
 
 // Unpack lighting from uint32 format
 vec3 unpackLighting(uint packed) {
@@ -97,6 +93,10 @@ uint extractChunkIndex(uint chunkIndex) {
     return chunkIndex;
 }
 
+layout(location = 0) out vec3 fragColor[];
+layout(location = 1) out vec2 fragUV[];
+layout(location = 2) out flat uint fragTextureIndex[];
+
 void main() {
     // Thread-safe approach: each thread processes one face independently
     uint faceIndex = gl_WorkGroupID.x * gl_WorkGroupSize.x + gl_LocalInvocationIndex;
@@ -125,7 +125,7 @@ void main() {
     uint textureIdx = extractTextureIndex(faces[faceIndex].blockAndQuad);
     uint lightIdx = extractLightIndex(faces[faceIndex].positionAndFlags);
     uint chunkIdx = extractChunkIndex(faces[faceIndex].chunkIndex);
-    
+
     // Get block position from face buffer (0-15 range)
     vec3 blockPos = unpackBlockPosition(faces[faceIndex].positionAndFlags);
     

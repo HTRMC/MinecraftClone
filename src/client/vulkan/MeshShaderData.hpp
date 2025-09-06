@@ -24,7 +24,7 @@ struct alignas(4) FaceData {
     }
     
     static uint32_t packBlockAndQuad(uint16_t texture, uint16_t quadIndex) {
-        return static_cast<uint32_t>(texture) | (static_cast<uint32_t>(quadIndex) << 16);
+        return (static_cast<uint32_t>(texture) << 16) | static_cast<uint32_t>(quadIndex);
     }
     
     void setPosition(uint32_t x, uint32_t y, uint32_t z, bool isBackFace, uint16_t lightIndex) {

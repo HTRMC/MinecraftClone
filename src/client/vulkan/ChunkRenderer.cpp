@@ -139,130 +139,6 @@ void ChunkRenderer::renderParallel(std::vector<VkCommandBuffer>& commandBuffers,
                   " command buffers for " + std::to_string(faceCount) + " total faces");
 }
 
-void ChunkRenderer::addTestCube() {
-    RenderData testData;
-    
-    // Create a single test chunk at origin
-    testData.chunkCoords.push_back(glm::ivec4(0, 0, 0, 0));
-    
-    // Create cube faces using the proven approach from the working project
-    // Cube bounds: min = (-0.5, -0.5, -0.5), max = (0.5, 0.5, 0.5) centered at origin
-    constexpr glm::vec3 min(-0.5f, -0.5f, -0.5f);
-    constexpr glm::vec3 max(0.5f, 0.5f, 0.5f);
-    
-    // Define 8 corners of the cube
-    const glm::vec3 corner000(min.x, min.y, min.z);  // -X, -Y, -Z
-    const glm::vec3 corner001(min.x, min.y, max.z);  // -X, -Y, +Z
-    const glm::vec3 corner010(min.x, max.y, min.z);  // -X, +Y, -Z
-    const glm::vec3 corner011(min.x, max.y, max.z);  // -X, +Y, +Z
-    const glm::vec3 corner100(max.x, min.y, min.z);  // +X, -Y, -Z
-    const glm::vec3 corner101(max.x, min.y, max.z);  // +X, -Y, +Z
-    const glm::vec3 corner110(max.x, max.y, min.z);  // +X, +Y, -Z
-    const glm::vec3 corner111(max.x, max.y, max.z);  // +X, +Y, +Z
-    
-    // Define faces in order: Left, Right, Front, Back, Bottom, Top
-    // All faces use counter-clockwise winding when viewed from outside
-    struct FaceInfo {
-        glm::vec3 normal;
-        glm::vec4 vertices[4];
-        int textureSlot;
-    };
-    
-    std::vector<FaceInfo> faces = {
-        // Left face (-X) - Counter-clockwise when viewed from outside
-        {
-            glm::vec3(-1, 0, 0),
-            { glm::vec4(corner000, 1.0f), glm::vec4(corner010, 1.0f), glm::vec4(corner011, 1.0f), glm::vec4(corner001, 1.0f) },
-            0
-        },
-        // Right face (+X) - Counter-clockwise when viewed from outside  
-        {
-            glm::vec3(1, 0, 0),
-            { glm::vec4(corner101, 1.0f), glm::vec4(corner111, 1.0f), glm::vec4(corner110, 1.0f), glm::vec4(corner100, 1.0f) },
-            1
-        },
-        // Front face (-Y) - Counter-clockwise when viewed from outside
-        {
-            glm::vec3(0, -1, 0),
-            { glm::vec4(corner100, 1.0f), glm::vec4(corner000, 1.0f), glm::vec4(corner001, 1.0f), glm::vec4(corner101, 1.0f) },
-            2
-        },
-        // Back face (+Y) - Counter-clockwise when viewed from outside
-        {
-            glm::vec3(0, 1, 0),
-            { glm::vec4(corner010, 1.0f), glm::vec4(corner110, 1.0f), glm::vec4(corner111, 1.0f), glm::vec4(corner011, 1.0f) },
-            3
-        },
-        // Bottom face (-Z) - Counter-clockwise when viewed from outside
-        {
-            glm::vec3(0, 0, -1),
-            { glm::vec4(corner000, 1.0f), glm::vec4(corner100, 1.0f), glm::vec4(corner110, 1.0f), glm::vec4(corner010, 1.0f) },
-            4
-        },
-        // Top face (+Z) - Counter-clockwise when viewed from outside
-        {
-            glm::vec3(0, 0, 1),
-            { glm::vec4(corner001, 1.0f), glm::vec4(corner011, 1.0f), glm::vec4(corner111, 1.0f), glm::vec4(corner101, 1.0f) },
-            5
-        }
-    };
-    
-    // Define white lighting for proper texture display
-    uint32_t faceColors[6][3] = {
-        {31, 31, 31},   // Left: White
-        {31, 31, 31},   // Right: White  
-        {31, 31, 31},   // Front: White
-        {31, 31, 31},   // Back: White
-        {31, 31, 31},   // Bottom: White
-        {31, 31, 31}    // Top: White
-    };
-    
-    // Create model data for each face (6 quads)
-    for (size_t i = 0; i < faces.size(); ++i) {
-        // Create model data
-        ModelData model = {};
-        for (int v = 0; v < 4; v++) {
-            model.vertices[v] = faces[i].vertices[v];
-        }
-        // Standard UV coordinates
-        model.uvCoords[0] = glm::vec2(0.0f, 0.0f);
-        model.uvCoords[1] = glm::vec2(1.0f, 0.0f);
-        model.uvCoords[2] = glm::vec2(1.0f, 1.0f);
-        model.uvCoords[3] = glm::vec2(0.0f, 1.0f);
-        model.faceNormal = glm::vec4(faces[i].normal, 0.0f);
-        testData.models.push_back(model);
-        
-        // Create lighting data for this face with different colors
-        uint32_t ao = 31;
-        uint32_t skyLight = 31;
-        uint32_t blockLight = 0;
-        uint32_t r = faceColors[i][0];
-        uint32_t g = faceColors[i][1]; 
-        uint32_t b = faceColors[i][2];
-        uint32_t packedLight = ao | (skyLight << 5) | (blockLight << 10) | (r << 15) | (g << 20) | (b << 25);
-        
-        LightData lightData = {};
-        lightData.vertex0 = packedLight;
-        lightData.vertex1 = packedLight;
-        lightData.vertex2 = packedLight;
-        lightData.vertex3 = packedLight;
-        testData.lights.push_back(lightData);
-        
-        // Create face data referencing this model and lighting
-        FaceData face = {};
-        // Pack position: block at (0, 0, 0) in chunk, lightIndex = i
-        face.positionAndFlags = (0) | (0 << 5) | (0 << 10) | (static_cast<uint32_t>(i) << 16);
-        face.blockAndQuad = (static_cast<uint32_t>(faces[i].textureSlot)) | (static_cast<uint32_t>(i) << 16);
-        face.chunkIndex = 0;
-        testData.faces.push_back(face);
-    }
-    
-    // Update render data
-    updateRenderData(testData);
-    
-    Logger::info("ChunkRenderer", "Added test cube with " + std::to_string(testData.faces.size()) + " faces, " +
-                 std::to_string(testData.models.size()) + " models, " + std::to_string(testData.lights.size()) + " lights");
-}
 
 void ChunkRenderer::createBuffers() {
     // Create empty buffers initially - they will be resized when data is updated
@@ -366,68 +242,6 @@ void ChunkRenderer::destroyBuffer(BufferInfo& buffer) {
     vulkanContext->destroyBuffer(buffer);
 }
 
-void ChunkRenderer::addTestCubeFromJSON() {
-    try {
-        // Load the cube model from JSON with inheritance support
-        BlockModel model = BlockModelLoader::loadModelWithInheritance("assets/minecraft/models/block/stone.json");
-        
-        // Generate mesh data from the model
-        std::vector<ModelData> meshData = BlockModelLoader::generateMeshData(model);
-        
-        RenderData testData;
-        
-        // Create a single test chunk at origin
-        testData.chunkCoords.push_back(glm::ivec4(0, 0, 0, 0));
-        
-        // Use white lighting for proper texture display
-        uint32_t faceColors[6][3] = {
-            {31, 31, 31},   // West: White
-            {31, 31, 31},   // East: White  
-            {31, 31, 31},   // North: White
-            {31, 31, 31},   // South: White
-            {31, 31, 31},   // Down: White
-            {31, 31, 31}    // Up: White
-        };
-        
-        // Process each face from the loaded model
-        for (size_t i = 0; i < meshData.size() && i < 6; ++i) {
-            testData.models.push_back(meshData[i]);
-            
-            // Create lighting data for this face with different colors
-            uint32_t ao = 31;
-            uint32_t skyLight = 31;
-            uint32_t blockLight = 0;
-            uint32_t r = faceColors[i][0];
-            uint32_t g = faceColors[i][1]; 
-            uint32_t b = faceColors[i][2];
-            uint32_t packedLight = ao | (skyLight << 5) | (blockLight << 10) | (r << 15) | (g << 20) | (b << 25);
-            
-            LightData lightData = {};
-            lightData.vertex0 = packedLight;
-            lightData.vertex1 = packedLight;
-            lightData.vertex2 = packedLight;
-            lightData.vertex3 = packedLight;
-            testData.lights.push_back(lightData);
-            
-            // Create face data referencing this model and lighting
-            FaceData face = {};
-            // Pack position: block at (0, 0, 0) in chunk, lightIndex = i
-            face.positionAndFlags = (0) | (0 << 5) | (0 << 10) | (static_cast<uint32_t>(i) << 16);
-            face.blockAndQuad = (static_cast<uint32_t>(i)) | (0 << 16);
-            face.chunkIndex = 0;
-            testData.faces.push_back(face);
-        }
-        
-        // Update render data
-        updateRenderData(testData);
-        
-        Logger::info("ChunkRenderer", "Added test cube from JSON with " + std::to_string(testData.faces.size()) + " faces, " +
-                     std::to_string(testData.models.size()) + " models, " + std::to_string(testData.lights.size()) + " lights");
-                     
-    } catch (const std::exception& e) {
-        Logger::error("ChunkRenderer", "Failed to load cube from JSON: " + std::string(e.what()));
-    }
-}
 
 void ChunkRenderer::loadDefaultTextures() {
     try {
@@ -446,6 +260,7 @@ void ChunkRenderer::addFullChunk() {
         
         // Generate mesh data from the model
         std::vector<ModelData> meshData = BlockModelLoader::generateMeshData(model);
+        Logger::info("ChunkRenderer", "Generated " + std::to_string(meshData.size()) + " models from stone.json");
         
         RenderData chunkData;
         
@@ -462,17 +277,22 @@ void ChunkRenderer::addFullChunk() {
             {31, 31, 31}    // Up: White
         };
         
-        // Add only ONE stone block model that all faces will reference
-        if (!meshData.empty()) {
-            // Use the first model as our stone block model
-            chunkData.models.push_back(meshData[0]);
+        // Add the 6 face models once (each face has different orientation)
+        for (size_t i = 0; i < meshData.size() && i < 6; ++i) {
+            chunkData.models.push_back(meshData[i]);
+        }
+        
+        // Ensure we have at least one model to work with
+        if (meshData.empty()) {
+            Logger::error("ChunkRenderer", "No mesh data available for stone block");
+            return;
         }
         
         // Generate 16x16x16 blocks without culling
         for (int x = 0; x < 16; x++) {
             for (int y = 0; y < 16; y++) {
                 for (int z = 0; z < 16; z++) {
-                    // For each block, add all 6 faces (no culling)
+                    // For each block, add all 6 faces (no culling) - always create 6 faces
                     for (int faceIndex = 0; faceIndex < 6; ++faceIndex) {
                         // Create lighting data for this face
                         uint32_t ao = 31;
@@ -490,14 +310,20 @@ void ChunkRenderer::addFullChunk() {
                         lightData.vertex3 = packedLight;
                         chunkData.lights.push_back(lightData);
                         
-                        // Create face data referencing the single stone model and this lighting
+                        // Create face data referencing the correct model and this lighting
                         FaceData face = {};
                         uint16_t lightIndex = static_cast<uint16_t>(chunkData.lights.size() - 1);
-                        uint16_t quadIndex = 0; // Always reference the single stone model at index 0
                         
-                        // Pack position using proper utility function
+                        // Each face references its corresponding model (with bounds checking)
                         face.setPosition(x, y, z, false, lightIndex);
-                        face.setBlockAndQuad(0, quadIndex); // texture = 0 (stone), quadIndex = 0 (single model)
+                        uint16_t modelIndex = static_cast<uint16_t>(faceIndex % chunkData.models.size());
+                        face.setBlockAndQuad(0, modelIndex); // texture = 0 (stone), model = modelIndex
+                        
+                        // Debug: Log model indices for the first block only
+                        if (x == 0 && y == 0 && z == 0) {
+                            Logger::debug("ChunkRenderer", "Block (0,0,0) face " + std::to_string(faceIndex) + 
+                                          " using model " + std::to_string(modelIndex));
+                        }
                         face.chunkIndex = 0;
                         chunkData.faces.push_back(face);
                     }

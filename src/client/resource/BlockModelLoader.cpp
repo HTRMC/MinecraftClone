@@ -188,6 +188,16 @@ std::vector<ModelData> BlockModelLoader::generateMeshData(const BlockModel& mode
                 glm::vec3 normal = getFaceNormal(faceName);
                 modelData.faceNormal = glm::vec4(normal, 0.0f);
                 
+                // Debug: Log vertex positions for the first few models
+                if (meshData.size() < 6) {
+                    Logger::debug("BlockModelLoader", "Face '" + faceName + "' vertices:");
+                    for (int v = 0; v < 4; v++) {
+                        glm::vec3 pos = glm::vec3(modelData.vertices[v]);
+                        Logger::debug("BlockModelLoader", "  v" + std::to_string(v) + ": (" + 
+                                      std::to_string(pos.x) + ", " + std::to_string(pos.y) + ", " + std::to_string(pos.z) + ")");
+                    }
+                }
+                
                 meshData.push_back(modelData);
             }
         }
@@ -343,43 +353,50 @@ glm::mat4 BlockModelLoader::createRotationMatrix(const ElementRotation& rotation
 std::vector<glm::vec4> BlockModelLoader::generateFaceVertices(const glm::vec3& from, const glm::vec3& to, const std::string& face, const std::optional<ElementRotation>& rotation) {
     std::vector<glm::vec4> vertices(4);
     
-    // Generate base vertices
-    if (face == "west") {
-        // Left face (-X) - Counter-clockwise when viewed from outside
-        vertices[0] = glm::vec4(from.x, from.y, from.z, 1.0f);
-        vertices[1] = glm::vec4(from.x, to.y, from.z, 1.0f);
-        vertices[2] = glm::vec4(from.x, to.y, to.z, 1.0f);
-        vertices[3] = glm::vec4(from.x, from.y, to.z, 1.0f);
-    } else if (face == "east") {
-        // Right face (+X) - Counter-clockwise when viewed from outside
-        vertices[0] = glm::vec4(to.x, from.y, to.z, 1.0f);
-        vertices[1] = glm::vec4(to.x, to.y, to.z, 1.0f);
-        vertices[2] = glm::vec4(to.x, to.y, from.z, 1.0f);
-        vertices[3] = glm::vec4(to.x, from.y, from.z, 1.0f);
-    } else if (face == "north") {
-        // Front face (-Y) - Counter-clockwise when viewed from outside
-        vertices[0] = glm::vec4(to.x, from.y, from.z, 1.0f);
-        vertices[1] = glm::vec4(from.x, from.y, from.z, 1.0f);
-        vertices[2] = glm::vec4(from.x, from.y, to.z, 1.0f);
-        vertices[3] = glm::vec4(to.x, from.y, to.z, 1.0f);
-    } else if (face == "south") {
-        // Back face (+Y) - Counter-clockwise when viewed from outside
-        vertices[0] = glm::vec4(from.x, to.y, from.z, 1.0f);
-        vertices[1] = glm::vec4(to.x, to.y, from.z, 1.0f);
-        vertices[2] = glm::vec4(to.x, to.y, to.z, 1.0f);
-        vertices[3] = glm::vec4(from.x, to.y, to.z, 1.0f);
-    } else if (face == "down") {
-        // Bottom face (-Z) - Counter-clockwise when viewed from outside
-        vertices[0] = glm::vec4(from.x, from.y, from.z, 1.0f);
-        vertices[1] = glm::vec4(to.x, from.y, from.z, 1.0f);
-        vertices[2] = glm::vec4(to.x, to.y, from.z, 1.0f);
-        vertices[3] = glm::vec4(from.x, to.y, from.z, 1.0f);
+    // Generate vertices based on Minecraft's CubeFace corner definitions
+    // Each face has 4 corners with specific coordinates following Minecraft's ordering
+    if (face == "down") {
+        // Down face at Y = from.y (bottom face)
+        // Minecraft order: (WEST,DOWN,SOUTH), (WEST,DOWN,NORTH), (EAST,DOWN,NORTH), (EAST,DOWN,SOUTH)
+        vertices[0] = glm::vec4(from.x, from.y, to.z, 1.0f);   // WEST, DOWN, SOUTH
+        vertices[1] = glm::vec4(from.x, from.y, from.z, 1.0f); // WEST, DOWN, NORTH  
+        vertices[2] = glm::vec4(to.x, from.y, from.z, 1.0f);   // EAST, DOWN, NORTH
+        vertices[3] = glm::vec4(to.x, from.y, to.z, 1.0f);     // EAST, DOWN, SOUTH
     } else if (face == "up") {
-        // Top face (+Z) - Counter-clockwise when viewed from outside
-        vertices[0] = glm::vec4(from.x, from.y, to.z, 1.0f);
-        vertices[1] = glm::vec4(from.x, to.y, to.z, 1.0f);
-        vertices[2] = glm::vec4(to.x, to.y, to.z, 1.0f);
-        vertices[3] = glm::vec4(to.x, from.y, to.z, 1.0f);
+        // Up face at Y = to.y (top face)
+        // Minecraft order: (WEST,UP,NORTH), (WEST,UP,SOUTH), (EAST,UP,SOUTH), (EAST,UP,NORTH)
+        vertices[0] = glm::vec4(from.x, to.y, from.z, 1.0f);   // WEST, UP, NORTH
+        vertices[1] = glm::vec4(from.x, to.y, to.z, 1.0f);     // WEST, UP, SOUTH
+        vertices[2] = glm::vec4(to.x, to.y, to.z, 1.0f);       // EAST, UP, SOUTH
+        vertices[3] = glm::vec4(to.x, to.y, from.z, 1.0f);     // EAST, UP, NORTH
+    } else if (face == "north") {
+        // North face at Z = from.z (front face)
+        // Minecraft order: (EAST,UP,NORTH), (EAST,DOWN,NORTH), (WEST,DOWN,NORTH), (WEST,UP,NORTH)
+        vertices[0] = glm::vec4(to.x, to.y, from.z, 1.0f);     // EAST, UP, NORTH
+        vertices[1] = glm::vec4(to.x, from.y, from.z, 1.0f);   // EAST, DOWN, NORTH
+        vertices[2] = glm::vec4(from.x, from.y, from.z, 1.0f); // WEST, DOWN, NORTH
+        vertices[3] = glm::vec4(from.x, to.y, from.z, 1.0f);   // WEST, UP, NORTH
+    } else if (face == "south") {
+        // South face at Z = to.z (back face)
+        // Minecraft order: (WEST,UP,SOUTH), (WEST,DOWN,SOUTH), (EAST,DOWN,SOUTH), (EAST,UP,SOUTH)
+        vertices[0] = glm::vec4(from.x, to.y, to.z, 1.0f);     // WEST, UP, SOUTH
+        vertices[1] = glm::vec4(from.x, from.y, to.z, 1.0f);   // WEST, DOWN, SOUTH
+        vertices[2] = glm::vec4(to.x, from.y, to.z, 1.0f);     // EAST, DOWN, SOUTH
+        vertices[3] = glm::vec4(to.x, to.y, to.z, 1.0f);       // EAST, UP, SOUTH
+    } else if (face == "west") {
+        // West face at X = from.x (left face)
+        // Minecraft order: (WEST,UP,NORTH), (WEST,DOWN,NORTH), (WEST,DOWN,SOUTH), (WEST,UP,SOUTH)
+        vertices[0] = glm::vec4(from.x, to.y, from.z, 1.0f);   // WEST, UP, NORTH
+        vertices[1] = glm::vec4(from.x, from.y, from.z, 1.0f); // WEST, DOWN, NORTH
+        vertices[2] = glm::vec4(from.x, from.y, to.z, 1.0f);   // WEST, DOWN, SOUTH
+        vertices[3] = glm::vec4(from.x, to.y, to.z, 1.0f);     // WEST, UP, SOUTH
+    } else if (face == "east") {
+        // East face at X = to.x (right face)
+        // Minecraft order: (EAST,UP,SOUTH), (EAST,DOWN,SOUTH), (EAST,DOWN,NORTH), (EAST,UP,NORTH)
+        vertices[0] = glm::vec4(to.x, to.y, to.z, 1.0f);       // EAST, UP, SOUTH
+        vertices[1] = glm::vec4(to.x, from.y, to.z, 1.0f);     // EAST, DOWN, SOUTH
+        vertices[2] = glm::vec4(to.x, from.y, from.z, 1.0f);   // EAST, DOWN, NORTH
+        vertices[3] = glm::vec4(to.x, to.y, from.z, 1.0f);     // EAST, UP, NORTH
     }
     
     // Apply rotation if specified
