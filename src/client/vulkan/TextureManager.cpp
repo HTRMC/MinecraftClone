@@ -336,7 +336,7 @@ VkCommandBuffer TextureManager::beginSingleTimeCommands() {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = vulkanContext->getCommandPool();
+    allocInfo.commandPool = vulkanContext->getGraphicsCommandPool().pool;
     allocInfo.commandBufferCount = 1;
     
     VkCommandBuffer commandBuffer;
@@ -361,5 +361,5 @@ void TextureManager::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
     vkQueueSubmit(vulkanContext->getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
     vkQueueWaitIdle(vulkanContext->getGraphicsQueue());
     
-    vkFreeCommandBuffers(vulkanContext->getDevice(), vulkanContext->getCommandPool(), 1, &commandBuffer);
+    vkFreeCommandBuffers(vulkanContext->getDevice(), vulkanContext->getGraphicsCommandPool().pool, 1, &commandBuffer);
 }
