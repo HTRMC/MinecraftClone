@@ -45,8 +45,6 @@ void MinecraftClient::run() {
             Logger::error("Renderer", e.what());
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(16));
-
         fps = 60;
 
         window->updateTitle();
