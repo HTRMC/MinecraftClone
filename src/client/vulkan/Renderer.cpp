@@ -100,10 +100,8 @@ void Renderer::cleanup() {
 void Renderer::render() {
     if (!initialized) return;
     
-    vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-    
+    // Acquire image first to avoid unnecessary fence waiting
     uint32_t imageIndex;
-    // Use currentFrame % imageAvailableSemaphores.size() to cycle through available semaphores
     uint32_t acquireSemaphoreIndex = currentFrame % imageAvailableSemaphores.size();
     VkResult result = vkAcquireNextImageKHR(vulkanContext->getDevice(), swapChain, UINT64_MAX, 
                                            imageAvailableSemaphores[acquireSemaphoreIndex], VK_NULL_HANDLE, &imageIndex);
@@ -115,54 +113,25 @@ void Renderer::render() {
         throw std::runtime_error("Failed to acquire swap chain image!");
     }
     
+    // Only wait for fence after we know we need to render
+    vkWaitForFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
     vkResetFences(vulkanContext->getDevice(), 1, &inFlightFences[currentFrame]);
     
-    vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+    // Check if we need to update anything (camera changed or data changed)
+    bool cameraChanged = camera && camera->hasChanged();
+    bool dataChanged = chunkRenderer && chunkRenderer->hasDataChanged();
     
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    
-    if (vkBeginCommandBuffer(commandBuffers[currentFrame], &beginInfo) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to begin recording command buffer!");
-    }
-    
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = renderPass;
-    renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = swapChainExtent;
-    
-    VkClearValue clearColor = {{{0.2f, 0.3f, 0.8f, 1.0f}}};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
-    
-    vkCmdBeginRenderPass(commandBuffers[currentFrame], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = (float) swapChainExtent.width;
-    viewport.height = (float) swapChainExtent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(commandBuffers[currentFrame], 0, 1, &viewport);
-    
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = swapChainExtent;
-    vkCmdSetScissor(commandBuffers[currentFrame], 0, 1, &scissor);
-    
-    // Create UBO with camera matrices
-    UniformBufferObject ubo = createUBO();
-    
-    // Render chunks using mesh shaders
-    chunkRenderer->render(commandBuffers[currentFrame], ubo);
-    
-    vkCmdEndRenderPass(commandBuffers[currentFrame]);
-    
-    if (vkEndCommandBuffer(commandBuffers[currentFrame]) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to record command buffer!");
+    // Only reset and record command buffer if something changed
+    if (cameraChanged || dataChanged || !commandBuffersRecorded) {
+        vkResetCommandBuffer(commandBuffers[currentFrame], 0);
+        
+        // Record static commands (render pass setup, viewport, etc.)
+        recordStaticCommandBuffer(commandBuffers[currentFrame], imageIndex);
+        
+        // Record dynamic commands (UBO updates, draw calls)
+        updateDynamicCommands(commandBuffers[currentFrame]);
+        
+        commandBuffersRecorded = true;
     }
     
     VkSubmitInfo submitInfo{};
@@ -200,6 +169,7 @@ void Renderer::render() {
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
         framebufferResized = false;
         recreateSwapChain();
+        commandBuffersRecorded = false; // Force re-recording after swapchain recreation
     } else if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to present swap chain image!");
     }
@@ -357,6 +327,7 @@ void Renderer::createFramebuffers() {
 
 void Renderer::createCommandBuffers() {
     commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+    staticCommandsRecorded.resize(swapChainImages.size(), false);
     
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -366,6 +337,62 @@ void Renderer::createCommandBuffers() {
     
     if (vkAllocateCommandBuffers(vulkanContext->getDevice(), &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate command buffers!");
+    }
+}
+
+void Renderer::recordStaticCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to begin recording command buffer!");
+    }
+    
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = renderPass;
+    renderPassInfo.framebuffer = swapChainFramebuffers[imageIndex];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = swapChainExtent;
+    
+    VkClearValue clearColor = {{{0.2f, 0.3f, 0.8f, 1.0f}}};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+    
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = (float) swapChainExtent.width;
+    viewport.height = (float) swapChainExtent.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+    
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = swapChainExtent;
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+}
+
+void Renderer::updateDynamicCommands(VkCommandBuffer commandBuffer) {
+    // Check if camera has changed and create UBO
+    bool cameraChanged = camera && camera->hasChanged();
+    UniformBufferObject ubo = createUBO();
+    
+    // Reset camera change flag after creating UBO
+    if (cameraChanged) {
+        camera->resetChangeFlag();
+    }
+    
+    // Render chunks using mesh shaders
+    chunkRenderer->render(commandBuffer, ubo, cameraChanged);
+    
+    vkCmdEndRenderPass(commandBuffer);
+    
+    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to record command buffer!");
     }
 }
 

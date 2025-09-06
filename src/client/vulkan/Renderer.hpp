@@ -40,6 +40,9 @@ private:
     void recreateSwapChain();
     void cleanupSwapChain();
     
+    void recordStaticCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+    void updateDynamicCommands(VkCommandBuffer commandBuffer);
+    
     SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
@@ -77,4 +80,6 @@ private:
     
     bool initialized = false;
     bool framebufferResized = false;
+    bool commandBuffersRecorded = false;
+    std::vector<bool> staticCommandsRecorded;
 };

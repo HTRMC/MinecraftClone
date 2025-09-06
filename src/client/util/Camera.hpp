@@ -13,6 +13,8 @@ public:
     
     glm::mat4 getViewMatrix() const;
     glm::vec3 getPosition() const { return position; }
+    bool hasChanged() const { return viewMatrixChanged; }
+    void resetChangeFlag() { viewMatrixChanged = false; }
     
     void setMovementSpeed(float speed) { movementSpeed = speed; }
     void setSensitivity(float sensitivity) { mouseSensitivity = sensitivity; }
@@ -32,5 +34,6 @@ private:
     float movementSpeed = 5.0f;
     float mouseSensitivity = 0.1f;
     
+    mutable bool viewMatrixChanged = true;
     glm::ivec3 lastLoggedIntPos = glm::ivec3(INT_MAX);
 };

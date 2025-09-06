@@ -24,6 +24,11 @@ void Camera::processKeyboard(int key, float deltaTime) {
     if (key == GLFW_KEY_D)
         position += horizontalRight * velocity;
     
+    // Mark view matrix as changed if position changed
+    if (position != oldPosition) {
+        viewMatrixChanged = true;
+    }
+    
     // Debug print when integer position changes
     glm::ivec3 intPos = glm::ivec3(floor(position.x), floor(position.y), floor(position.z));
     if (intPos != lastLoggedIntPos) {
@@ -37,6 +42,9 @@ void Camera::processMouseMovement(float xOffset, float yOffset) {
     xOffset *= mouseSensitivity;
     yOffset *= mouseSensitivity;
     
+    float oldYaw = yaw;
+    float oldPitch = pitch;
+    
     yaw += xOffset;
     pitch += yOffset;
     
@@ -46,7 +54,11 @@ void Camera::processMouseMovement(float xOffset, float yOffset) {
     if (pitch < -89.0f)
         pitch = -89.0f;
     
-    updateCameraVectors();
+    // Mark view matrix as changed if rotation changed
+    if (yaw != oldYaw || pitch != oldPitch) {
+        viewMatrixChanged = true;
+        updateCameraVectors();
+    }
 }
 
 glm::mat4 Camera::getViewMatrix() const {

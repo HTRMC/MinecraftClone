@@ -45,11 +45,13 @@ void ChunkRenderer::updateRenderData(const RenderData& newData) {
     dataUpdated = true;
 }
 
-void ChunkRenderer::render(VkCommandBuffer commandBuffer, const UniformBufferObject& ubo) {
+void ChunkRenderer::render(VkCommandBuffer commandBuffer, const UniformBufferObject& ubo, bool cameraChanged) {
     if (!initialized || currentRenderData.faces.empty()) return;
     
-    // Update UBO
-    descriptorManager->updateUniformBuffer(uboBuffer, ubo);
+    // Only update UBO if camera changed
+    if (cameraChanged) {
+        descriptorManager->updateUniformBuffer(uboBuffer, ubo);
+    }
     
     // Update buffers if data changed
     if (dataUpdated.exchange(false)) {
@@ -138,27 +140,40 @@ void ChunkRenderer::createBuffers() {
 void ChunkRenderer::updateBuffers() {
     if (currentRenderData.faces.empty()) return;
     
-    // Resize and update face buffer
+    // Only recreate buffers if size changed, otherwise just update data
     size_t faceSize = currentRenderData.faces.size() * sizeof(FaceData);
-    destroyBuffer(faceBuffer);
-    faceBuffer = createStorageBuffer(faceSize, currentRenderData.faces.data());
+    if (faceBuffer.size != faceSize) {
+        destroyBuffer(faceBuffer);
+        faceBuffer = createStorageBuffer(faceSize, currentRenderData.faces.data());
+    } else {
+        updateStorageBuffer(faceBuffer, currentRenderData.faces.data(), faceSize);
+    }
     
-    // Resize and update model buffer
     size_t modelSize = currentRenderData.models.size() * sizeof(ModelData);
-    destroyBuffer(modelBuffer);
-    modelBuffer = createStorageBuffer(modelSize, currentRenderData.models.data());
+    if (modelBuffer.size != modelSize) {
+        destroyBuffer(modelBuffer);
+        modelBuffer = createStorageBuffer(modelSize, currentRenderData.models.data());
+    } else {
+        updateStorageBuffer(modelBuffer, currentRenderData.models.data(), modelSize);
+    }
     
-    // Resize and update light buffer
     size_t lightSize = currentRenderData.lights.size() * sizeof(LightData);
-    destroyBuffer(lightBuffer);
-    lightBuffer = createStorageBuffer(lightSize, currentRenderData.lights.data());
+    if (lightBuffer.size != lightSize) {
+        destroyBuffer(lightBuffer);
+        lightBuffer = createStorageBuffer(lightSize, currentRenderData.lights.data());
+    } else {
+        updateStorageBuffer(lightBuffer, currentRenderData.lights.data(), lightSize);
+    }
     
-    // Resize and update chunk coord buffer
     size_t chunkSize = currentRenderData.chunkCoords.size() * sizeof(glm::ivec4);
-    destroyBuffer(chunkCoordBuffer);
-    chunkCoordBuffer = createStorageBuffer(chunkSize, currentRenderData.chunkCoords.data());
+    if (chunkCoordBuffer.size != chunkSize) {
+        destroyBuffer(chunkCoordBuffer);
+        chunkCoordBuffer = createStorageBuffer(chunkSize, currentRenderData.chunkCoords.data());
+    } else {
+        updateStorageBuffer(chunkCoordBuffer, currentRenderData.chunkCoords.data(), chunkSize);
+    }
     
-    // Update descriptor set with new buffers
+    // Update descriptor set if any buffers were recreated (size changed)
     descriptorManager->updateDescriptorSet(descriptorSet, uboBuffer.buffer,
                                          faceBuffer.buffer, modelBuffer.buffer,
                                          lightBuffer.buffer, chunkCoordBuffer.buffer);
