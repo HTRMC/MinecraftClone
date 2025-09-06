@@ -89,6 +89,7 @@ public:
 
     void generateChunkFaces(ChunkData* chunk);
     void generateChunkLighting(ChunkData* chunk);
+    void gain(ChunkData* chunk);
     
 private:
     void workerLoop();

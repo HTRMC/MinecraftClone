@@ -231,6 +231,41 @@ void JobSystem::gain(ChunkData* chunk) {
                   " vertices for chunk (" + std::to_string(chunk->x) + ", " + std::to_string(chunk->z) + ")");
 }
 
+void JobSystem::generateChunkFaces(ChunkData* chunk) {
+    std::lock_guard<std::mutex> lock(chunkMutex);
+    
+    chunk->faces.vertices.clear();
+    chunk->faces.indices.clear();
+    
+    chunk->faces.vertices.reserve(16 * 16 * 16 * 4 * 5);
+    chunk->faces.indices.reserve(16 * 16 * 16 * 6);
+    
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) {
+            for (int z = 0; z < 16; ++z) {
+                float worldX = chunk->x * 16 + x;
+                float worldY = y;
+                float worldZ = chunk->z * 16 + z;
+                
+                chunk->faces.vertices.insert(chunk->faces.vertices.end(), {
+                    worldX, worldY, worldZ, 0.0f, 0.0f,
+                    worldX + 1, worldY, worldZ, 1.0f, 0.0f,
+                    worldX + 1, worldY + 1, worldZ, 1.0f, 1.0f,
+                    worldX, worldY + 1, worldZ, 0.0f, 1.0f
+                });
+                
+                uint32_t baseIndex = static_cast<uint32_t>(chunk->faces.vertices.size() / 5) - 4;
+                chunk->faces.indices.insert(chunk->faces.indices.end(), {
+                    baseIndex, baseIndex + 1, baseIndex + 2,
+                    baseIndex, baseIndex + 2, baseIndex + 3
+                });
+            }
+        }
+    }
+    
+    Logger::debug("JobSystem", "Generated chunk faces for chunk (" + std::to_string(chunk->x) + ", " + std::to_string(chunk->z) + ")");
+}
+
 void JobSystem::generateChunkModels(ChunkData* chunk) {
     std::lock_guard<std::mutex> lock(chunkMutex);
     
