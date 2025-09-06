@@ -300,3 +300,83 @@ uint32_t VulkanContext::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlag
 
     throw std::runtime_error("Failed to find suitable memory type!");
 }
+
+// ---------------- Buffer Pool Management ----------------
+
+BufferPool VulkanContext::createBufferPool(VkDeviceSize bufferSize) {
+    BufferPool pool;
+    pool.bufferSize = bufferSize;
+    
+    for (uint32_t i = 0; i < BufferPool::BUFFER_COUNT; ++i) {
+        pool.buffers[i] = createStorageBuffer(bufferSize);
+        
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        
+        if (vkCreateFence(device, &fenceInfo, nullptr, &pool.fences[i]) != VK_SUCCESS) {
+            for (uint32_t j = 0; j < i; ++j) {
+                destroyBuffer(pool.buffers[j]);
+                vkDestroyFence(device, pool.fences[j], nullptr);
+            }
+            destroyBuffer(pool.buffers[i]);
+            throw std::runtime_error("Failed to create fence for buffer pool!");
+        }
+    }
+    
+    Logger::info("Vulkan", "Created buffer pool with " + std::to_string(BufferPool::BUFFER_COUNT) + 
+                 " buffers of size " + std::to_string(bufferSize) + " bytes each");
+    return pool;
+}
+
+void VulkanContext::destroyBufferPool(BufferPool& pool) {
+    for (uint32_t i = 0; i < BufferPool::BUFFER_COUNT; ++i) {
+        if (pool.fences[i] != VK_NULL_HANDLE) {
+            vkWaitForFences(device, 1, &pool.fences[i], VK_TRUE, UINT64_MAX);
+            vkDestroyFence(device, pool.fences[i], nullptr);
+            pool.fences[i] = VK_NULL_HANDLE;
+        }
+        destroyBuffer(pool.buffers[i]);
+        pool.inUse[i] = false;
+    }
+    pool.currentIndex = 0;
+    pool.bufferSize = 0;
+}
+
+BufferInfo* VulkanContext::acquireBuffer(BufferPool& pool) {
+    for (uint32_t attempts = 0; attempts < BufferPool::BUFFER_COUNT; ++attempts) {
+        uint32_t index = pool.currentIndex;
+        pool.currentIndex = (pool.currentIndex + 1) % BufferPool::BUFFER_COUNT;
+        
+        if (!pool.inUse[index]) {
+            VkResult result = vkGetFenceStatus(device, pool.fences[index]);
+            if (result == VK_SUCCESS) {
+                pool.inUse[index] = true;
+                vkResetFences(device, 1, &pool.fences[index]);
+                return &pool.buffers[index];
+            }
+        }
+    }
+    
+    uint32_t oldestIndex = 0;
+    for (uint32_t i = 1; i < BufferPool::BUFFER_COUNT; ++i) {
+        if (vkGetFenceStatus(device, pool.fences[i]) == VK_SUCCESS) {
+            oldestIndex = i;
+            break;
+        }
+    }
+    
+    if (vkWaitForFences(device, 1, &pool.fences[oldestIndex], VK_TRUE, 1000000) == VK_SUCCESS) {
+        pool.inUse[oldestIndex] = true;
+        vkResetFences(device, 1, &pool.fences[oldestIndex]);
+        return &pool.buffers[oldestIndex];
+    }
+    
+    return nullptr;
+}
+
+void VulkanContext::releaseBuffer(BufferPool& pool, uint32_t bufferIndex) {
+    if (bufferIndex >= BufferPool::BUFFER_COUNT) return;
+    
+    pool.inUse[bufferIndex] = false;
+}

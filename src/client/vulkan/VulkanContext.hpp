@@ -34,6 +34,11 @@ public:
     BufferInfo createStorageBuffer(VkDeviceSize size);
     void destroyBuffer(BufferInfo& bufferInfo);
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    
+    BufferPool createBufferPool(VkDeviceSize bufferSize);
+    void destroyBufferPool(BufferPool& pool);
+    BufferInfo* acquireBuffer(BufferPool& pool);
+    void releaseBuffer(BufferPool& pool, uint32_t bufferIndex);
 
 private:
     void createInstance();
