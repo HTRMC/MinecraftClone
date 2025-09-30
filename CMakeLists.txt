@@ -55,6 +55,58 @@ FetchContent_Declare(
         GIT_TAG        1.0.1
 )
 
+# Fetch and build zlib (required for spng)
+FetchContent_Declare(
+		zlib
+		GIT_REPOSITORY https://github.com/madler/zlib.git
+		GIT_TAG        v1.3.1
+)
+
+set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)  # Skip zlib install
+
+# Disable install for zlib
+set(CMAKE_SKIP_INSTALL_RULES ON)
+
+# Make zlib available first
+FetchContent_MakeAvailable(zlib)
+
+# Set ZLIB variables so spng's find_package(ZLIB) finds our zlib
+set(ZLIB_FOUND TRUE CACHE BOOL "" FORCE)
+set(ZLIB_LIBRARY zlibstatic CACHE STRING "" FORCE)
+set(ZLIB_LIBRARIES zlibstatic CACHE STRING "" FORCE)
+set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}" CACHE STRING "" FORCE)
+set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR}" CACHE PATH "" FORCE)
+
+# Create ZLIB::ZLIB alias that spng might look for
+if(NOT TARGET ZLIB::ZLIB)
+	add_library(ZLIB::ZLIB ALIAS zlibstatic)
+endif()
+
+# Fetch spng
+FetchContent_Declare(
+    spng
+    GIT_REPOSITORY https://github.com/randy408/libspng.git
+    GIT_TAG        v0.7.4
+)
+set(SPNG_STATIC ON CACHE BOOL "" FORCE)
+set(SPNG_SHARED OFF CACHE BOOL "" FORCE)
+set(SPNG_USE_MINIZ OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SPNG_INSTALL OFF CACHE BOOL "" FORCE)
+
+# Fetch FastNoise2
+FetchContent_Declare(
+    FastNoise2
+    GIT_REPOSITORY https://github.com/Auburn/FastNoise2.git
+    GIT_TAG        master
+)
+
+# Configure FastNoise2 options before making it available
+set(FASTNOISE2_NOISETOOL OFF CACHE BOOL "Don't build NoiseTool application")
+set(FASTNOISE2_TESTS OFF CACHE BOOL "Don't build FastNoise2 tests")
+
 # VMA
 FetchContent_Declare(
         VMA
@@ -75,6 +127,11 @@ FetchContent_Declare(
         GIT_REPOSITORY https://github.com/gabime/spdlog.git
         GIT_TAG        v1.15.3
 )
+
+# Temporarily disable install rules for spng
+set(CMAKE_SKIP_INSTALL_RULES ON)
+FetchContent_MakeAvailable(spng)
+set(CMAKE_SKIP_INSTALL_RULES OFF)
 
 # Make available
 FetchContent_MakeAvailable(glfw glm VMA fmt spdlog)
@@ -242,9 +299,9 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Platform-specific libraries
 if(WIN32)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE glfw ${Vulkan_LIBRARIES} fmt::fmt spdlog::spdlog)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE glfw ${Vulkan_LIBRARIES} fmt::fmt spdlog::spdlog spng_static)
 elseif(UNIX AND NOT APPLE)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE glfw ${Vulkan_LIBRARIES} fmt::fmt spdlog::spdlog)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE glfw ${Vulkan_LIBRARIES} fmt::fmt spdlog::spdlog spng_static)
 elseif(APPLE)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE glfw ${Vulkan_LIBRARIES} fmt::fmt spdlog::spdlog)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE glfw ${Vulkan_LIBRARIES} fmt::fmt spdlog::spdlog spng_static)
 endif()
