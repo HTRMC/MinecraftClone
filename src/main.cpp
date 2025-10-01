@@ -174,10 +174,20 @@ private:
     float yaw = 45.0f;
     float pitch = 35.0f;
 
+    // Camera position
+    glm::vec3 cameraPos = glm::vec3(2.0f, 2.0f, 2.0f);
+    glm::vec3 worldUp = glm::vec3(0.0f, -1.0f, 0.0f);  // Vulkan Y- is up
+    float movementSpeed = 2.5f;
+
     double lastMouseX = WIDTH / 2.0;
     double lastMouseY = HEIGHT / 2.0;
     bool firstMouse = true;
     float mouseSensitivity = 1.0f;
+
+    // Timing for smooth movement
+    float deltaTime = 0.0f;
+    float lastFrame = 0.0f;
+
     VkInstance instance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -305,6 +315,38 @@ private:
 
         cameraRotation = glm::angleAxis(yawRad, glm::vec3(0.0f, 1.0f, 0.0f)) *
                          glm::angleAxis(-pitchRad, glm::vec3(1.0f, 0.0f, 0.0f));
+    }
+
+    void processKeyboard(float deltaTime) {
+        float velocity = movementSpeed * deltaTime;
+
+        // Get front and right vectors from camera rotation
+        glm::vec3 front = cameraRotation * glm::vec3(0.0f, 0.0f, -1.0f);
+        glm::vec3 right = cameraRotation * glm::vec3(-1.0f, 0.0f, 0.0f);
+
+        // WASD movement (horizontal plane only, like in the example)
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            glm::vec3 horizontalFront = glm::normalize(glm::vec3(front.x, 0.0f, front.z));
+            cameraPos += horizontalFront * velocity;
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            glm::vec3 horizontalFront = glm::normalize(glm::vec3(front.x, 0.0f, front.z));
+            cameraPos -= horizontalFront * velocity;
+        }
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            cameraPos += right * velocity;
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            cameraPos -= right * velocity;
+        }
+
+        // Space and Shift for vertical movement
+        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+            cameraPos -= worldUp * velocity;  // worldUp is (0, -1, 0), so subtract to go up
+        }
+        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+            cameraPos += worldUp * velocity;  // Add to go down (since worldUp is negative Y)
+        }
     }
 
     void initVulkan() {
@@ -883,8 +925,7 @@ private:
         UniformBufferObject ubo{};
         ubo.model = glm::mat4(1.0f);  // Identity matrix - no rotation
 
-        // Use quaternion to compute camera view matrix
-        glm::vec3 cameraPos(2.0f, 2.0f, 2.0f);
+        // Use dynamic camera position and quaternion to compute view matrix
         glm::vec3 front = cameraRotation * glm::vec3(0.0f, 0.0f, -1.0f);
         glm::vec3 up = cameraRotation * glm::vec3(0.0f, 1.0f, 0.0f);
         ubo.view = glm::lookAt(cameraPos, cameraPos + front, up);
@@ -1621,7 +1662,13 @@ private:
 
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
+            // Calculate deltaTime
+            float currentFrame = static_cast<float>(glfwGetTime());
+            deltaTime = currentFrame - lastFrame;
+            lastFrame = currentFrame;
+
             glfwPollEvents();
+            processKeyboard(deltaTime);
             drawFrame();
         }
 
