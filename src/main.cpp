@@ -30,7 +30,8 @@ const std::vector<const char*> validationLayers = {
 };
 
 const std::vector<const char*> deviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    VK_EXT_MESH_SHADER_EXTENSION_NAME
 };
 
 #ifdef NDEBUG
@@ -435,11 +436,23 @@ private:
         }
         VkPhysicalDeviceFeatures deviceFeatures{};
         deviceFeatures.samplerAnisotropy = VK_TRUE;
+
+        VkPhysicalDeviceMaintenance4Features maintenance4Features{};
+        maintenance4Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES;
+        maintenance4Features.maintenance4 = VK_TRUE;
+
+        VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{};
+        meshShaderFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
+        meshShaderFeatures.meshShader = VK_TRUE;
+        meshShaderFeatures.taskShader = VK_FALSE;
+        meshShaderFeatures.pNext = &maintenance4Features;
+
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         createInfo.pQueueCreateInfos = queueCreateInfos.data();
         createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
         createInfo.pEnabledFeatures = &deviceFeatures;
+        createInfo.pNext = &meshShaderFeatures;
         createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
         createInfo.ppEnabledExtensionNames = deviceExtensions.data();
         if (enableValidationLayers) {
@@ -535,7 +548,7 @@ private:
         uboLayoutBinding.binding = 0;
         uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         uboLayoutBinding.descriptorCount = 1;
-        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
         uboLayoutBinding.pImmutableSamplers = nullptr;
 
         VkDescriptorSetLayoutBinding samplerLayoutBinding{};
@@ -1287,15 +1300,10 @@ private:
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-        VkBuffer vertexBuffers[] = {vertexBuffer};
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+        PFN_vkCmdDrawMeshTasksEXT vkCmdDrawMeshTasksEXT = (PFN_vkCmdDrawMeshTasksEXT)vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT");
+        vkCmdDrawMeshTasksEXT(commandBuffer, 1, 1, 1);
 
         vkCmdEndRenderPass(commandBuffer);
 
@@ -1330,17 +1338,17 @@ private:
     }
 
     void createGraphicsPipeline() {
-        auto vertShaderCode = readFile("assets/minecraft/shaders/triangle.vsh.spv");
+        auto meshShaderCode = readFile("assets/minecraft/shaders/triangle.msh.spv");
         auto fragShaderCode = readFile("assets/minecraft/shaders/triangle.fsh.spv");
 
-        VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+        VkShaderModule meshShaderModule = createShaderModule(meshShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
-        VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
-        vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        vertShaderStageInfo.module = vertShaderModule;
-        vertShaderStageInfo.pName = "main";
+        VkPipelineShaderStageCreateInfo meshShaderStageInfo{};
+        meshShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        meshShaderStageInfo.stage = VK_SHADER_STAGE_MESH_BIT_EXT;
+        meshShaderStageInfo.module = meshShaderModule;
+        meshShaderStageInfo.pName = "main";
 
         VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
         fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1348,22 +1356,7 @@ private:
         fragShaderStageInfo.module = fragShaderModule;
         fragShaderStageInfo.pName = "main";
 
-        VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
-
-        auto bindingDescription = Vertex::getBindingDescription();
-        auto attributeDescriptions = Vertex::getAttributeDescriptions();
-
-        VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-        vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount = 1;
-        vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-        vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
-
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        inputAssembly.primitiveRestartEnable = VK_FALSE;
+        VkPipelineShaderStageCreateInfo shaderStages[] = { meshShaderStageInfo, fragShaderStageInfo };
 
         VkViewport viewport{};
         viewport.x = 0.0f;
@@ -1440,8 +1433,8 @@ private:
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
         pipelineInfo.stageCount = 2;
         pipelineInfo.pStages = shaderStages;
-        pipelineInfo.pVertexInputState = &vertexInputInfo;
-        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pVertexInputState = nullptr;
+        pipelineInfo.pInputAssemblyState = nullptr;
         pipelineInfo.pViewportState = &viewportState;
         pipelineInfo.pRasterizationState = &rasterizer;
         pipelineInfo.pMultisampleState = &multisampling;
@@ -1457,7 +1450,7 @@ private:
             throw std::runtime_error("failed to create graphics pipeline!");
 
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
-        vkDestroyShaderModule(device, vertShaderModule, nullptr);
+        vkDestroyShaderModule(device, meshShaderModule, nullptr);
     }
 
     void createSyncObjects() {
