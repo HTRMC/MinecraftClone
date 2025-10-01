@@ -174,10 +174,10 @@ private:
     float yaw = 45.0f;
     float pitch = 35.0f;
 
-    // Camera position
-    glm::vec3 cameraPos = glm::vec3(2.0f, 2.0f, 2.0f);
+    // Camera position - positioned to view the 16x16x16 chunk
+    glm::vec3 cameraPos = glm::vec3(24.0f, 24.0f, 24.0f);
     glm::vec3 worldUp = glm::vec3(0.0f, -1.0f, 0.0f);  // Vulkan Y- is up
-    float movementSpeed = 2.5f;
+    float movementSpeed = 10.0f;
 
     double lastMouseX = WIDTH / 2.0;
     double lastMouseY = HEIGHT / 2.0;
@@ -930,7 +930,7 @@ private:
         glm::vec3 up = cameraRotation * glm::vec3(0.0f, 1.0f, 0.0f);
         ubo.view = glm::lookAt(cameraPos, cameraPos + front, up);
 
-        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 10.0f);
+        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 100.0f);
         ubo.proj[1][1] *= -1;
 
         memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
@@ -1441,10 +1441,15 @@ private:
 
         PFN_vkCmdDrawMeshTasksEXT vkCmdDrawMeshTasksEXT = (PFN_vkCmdDrawMeshTasksEXT)vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT");
 
-        // Draw cube
+        // Draw 16x16x16 chunk (4096 blocks)
+        // Each work group handles 10 blocks, so we need 410 work groups (4096 / 10 = 409.6, rounded up)
+        const uint32_t BLOCKS_PER_CHUNK = 16 * 16 * 16;
+        const uint32_t BLOCKS_PER_INVOCATION = 10;
+        const uint32_t NUM_WORK_GROUPS = (BLOCKS_PER_CHUNK + BLOCKS_PER_INVOCATION - 1) / BLOCKS_PER_INVOCATION;
+
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-        vkCmdDrawMeshTasksEXT(commandBuffer, 1, 1, 1);
+        vkCmdDrawMeshTasksEXT(commandBuffer, NUM_WORK_GROUPS, 1, 1);
 
         // Draw axis lines
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline);
