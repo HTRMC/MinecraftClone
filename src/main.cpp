@@ -4,6 +4,8 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 #include <spng.h>
 
@@ -129,14 +131,22 @@ struct Vertex {
 };
 
 const std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
+    // Axis triad at origin - length 1.0
+    // X axis (red)
+    {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    {{1.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+    // Y axis (green)
+    {{0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+    // Z axis (blue)
+    {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+    {{0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
 };
 
 const std::vector<uint16_t> indices = {
-    0, 1, 2, 2, 3, 0
+    0, 1,  // X axis
+    2, 3,  // Y axis
+    4, 5   // Z axis
 };
 
 struct UniformBufferObject {
@@ -156,6 +166,18 @@ public:
 
 private:
     GLFWwindow* window = nullptr;
+
+    // Camera quaternion rotation
+    glm::quat cameraRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+
+    // Initial yaw and pitch to look at origin from camera position (2,2,2)
+    float yaw = 45.0f;
+    float pitch = 35.0f;
+
+    double lastMouseX = WIDTH / 2.0;
+    double lastMouseY = HEIGHT / 2.0;
+    bool firstMouse = true;
+    float mouseSensitivity = 1.0f;
     VkInstance instance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -174,6 +196,7 @@ private:
     VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline graphicsPipeline = VK_NULL_HANDLE;
+    VkPipeline linePipeline = VK_NULL_HANDLE;
 
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
@@ -221,6 +244,8 @@ private:
         window = glfwCreateWindow(WIDTH, HEIGHT, "MinecraftClone", nullptr, nullptr);
         glfwSetWindowUserPointer(window, this);
         glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+        glfwSetCursorPosCallback(window, mouseCallback);
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     }
 
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
@@ -228,7 +253,64 @@ private:
         app->framebufferResized = true;
     }
 
+    static void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
+        auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+        app->processMouseMovement(xpos, ypos);
+    }
+
+    void processMouseMovement(double xpos, double ypos) {
+        if (firstMouse) {
+            lastMouseX = xpos;
+            lastMouseY = ypos;
+            firstMouse = false;
+        }
+
+        double xOffset = xpos - lastMouseX;
+        double yOffset = ypos - lastMouseY;
+
+        lastMouseX = xpos;
+        lastMouseY = ypos;
+
+        // Apply mouse sensitivity (Minecraft-style)
+        double sensitivity = mouseSensitivity * 0.6 + 0.2;
+        double multiplier = sensitivity * sensitivity * sensitivity * 8.0;
+
+        xOffset *= multiplier * 0.15;
+        yOffset *= multiplier * 0.15;
+
+        yaw -= static_cast<float>(xOffset);
+        pitch += static_cast<float>(yOffset);
+
+        // Constrain pitch
+        pitch = glm::clamp(pitch, -90.0f, 90.0f);
+
+        // Wrap yaw to [-180, 180]
+        yaw = wrapDegrees(yaw);
+
+        // Update camera quaternion using yaw and pitch
+        updateCameraRotation();
+    }
+
+    float wrapDegrees(float degrees) {
+        float f = fmod(degrees, 360.0f);
+        if (f >= 180.0f) f -= 360.0f;
+        if (f < -180.0f) f += 360.0f;
+        return f;
+    }
+
+    void updateCameraRotation() {
+        // Convert yaw and pitch to quaternion using the same approach as Camera
+        float yawRad = glm::radians(yaw);
+        float pitchRad = glm::radians(pitch);
+
+        cameraRotation = glm::angleAxis(yawRad, glm::vec3(0.0f, 1.0f, 0.0f)) *
+                         glm::angleAxis(-pitchRad, glm::vec3(1.0f, 0.0f, 0.0f));
+    }
+
     void initVulkan() {
+        // Initialize camera rotation to look at origin
+        updateCameraRotation();
+
         createInstance();
         setupDebugMessenger();
         createSurface();
@@ -436,6 +518,8 @@ private:
         }
         VkPhysicalDeviceFeatures deviceFeatures{};
         deviceFeatures.samplerAnisotropy = VK_TRUE;
+        deviceFeatures.wideLines = VK_TRUE;
+        deviceFeatures.fillModeNonSolid = VK_TRUE;
 
         VkPhysicalDeviceMaintenance4Features maintenance4Features{};
         maintenance4Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES;
@@ -796,14 +880,15 @@ private:
     }
 
     void updateUniformBuffer(uint32_t currentImage) {
-        static auto startTime = std::chrono::high_resolution_clock::now();
-
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
         UniformBufferObject ubo{};
-        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.model = glm::mat4(1.0f);  // Identity matrix - no rotation
+
+        // Use quaternion to compute camera view matrix
+        glm::vec3 cameraPos(2.0f, 2.0f, 2.0f);
+        glm::vec3 front = cameraRotation * glm::vec3(0.0f, 0.0f, -1.0f);
+        glm::vec3 up = cameraRotation * glm::vec3(0.0f, 1.0f, 0.0f);
+        ubo.view = glm::lookAt(cameraPos, cameraPos + front, up);
+
         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 10.0f);
         ubo.proj[1][1] *= -1;
 
@@ -1298,11 +1383,16 @@ private:
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-
         PFN_vkCmdDrawMeshTasksEXT vkCmdDrawMeshTasksEXT = (PFN_vkCmdDrawMeshTasksEXT)vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT");
+
+        // Draw cube
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
+        vkCmdDrawMeshTasksEXT(commandBuffer, 1, 1, 1);
+
+        // Draw axis lines
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
         vkCmdDrawMeshTasksEXT(commandBuffer, 1, 1, 1);
 
         vkCmdEndRenderPass(commandBuffer);
@@ -1451,6 +1541,60 @@ private:
 
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
         vkDestroyShaderModule(device, meshShaderModule, nullptr);
+
+        // Create line pipeline
+        auto lineShaderCode = readFile("assets/minecraft/shaders/lines.msh.spv");
+        auto lineFragShaderCode = readFile("assets/minecraft/shaders/lines.fsh.spv");
+        VkShaderModule lineShaderModule = createShaderModule(lineShaderCode);
+        VkShaderModule lineFragShaderModule = createShaderModule(lineFragShaderCode);
+
+        VkPipelineShaderStageCreateInfo lineShaderStageInfo{};
+        lineShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        lineShaderStageInfo.stage = VK_SHADER_STAGE_MESH_BIT_EXT;
+        lineShaderStageInfo.module = lineShaderModule;
+        lineShaderStageInfo.pName = "main";
+
+        VkPipelineShaderStageCreateInfo lineFragShaderStageInfo{};
+        lineFragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        lineFragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        lineFragShaderStageInfo.module = lineFragShaderModule;
+        lineFragShaderStageInfo.pName = "main";
+
+        VkPipelineShaderStageCreateInfo lineStages[] = { lineShaderStageInfo, lineFragShaderStageInfo };
+
+        // Rasterizer for lines - no face culling
+        VkPipelineRasterizationStateCreateInfo lineRasterizer{};
+        lineRasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        lineRasterizer.depthClampEnable = VK_FALSE;
+        lineRasterizer.rasterizerDiscardEnable = VK_FALSE;
+        lineRasterizer.polygonMode = VK_POLYGON_MODE_LINE;
+        lineRasterizer.lineWidth = 2.0f;
+        lineRasterizer.cullMode = VK_CULL_MODE_NONE;
+        lineRasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        lineRasterizer.depthBiasEnable = VK_FALSE;
+
+        VkGraphicsPipelineCreateInfo linePipelineInfo{};
+        linePipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        linePipelineInfo.stageCount = 2;
+        linePipelineInfo.pStages = lineStages;
+        linePipelineInfo.pVertexInputState = nullptr;
+        linePipelineInfo.pInputAssemblyState = nullptr;
+        linePipelineInfo.pViewportState = &viewportState;
+        linePipelineInfo.pRasterizationState = &lineRasterizer;
+        linePipelineInfo.pMultisampleState = &multisampling;
+        linePipelineInfo.pDepthStencilState = &depthStencil;
+        linePipelineInfo.pColorBlendState = &colorBlending;
+        linePipelineInfo.pDynamicState = nullptr;
+        linePipelineInfo.layout = pipelineLayout;
+        linePipelineInfo.renderPass = renderPass;
+        linePipelineInfo.subpass = 0;
+        linePipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &linePipelineInfo, nullptr, &linePipeline) != VK_SUCCESS)
+            throw std::runtime_error("failed to create line pipeline!");
+
+        vkDestroyShaderModule(device, lineFragShaderModule, nullptr);
+        vkDestroyShaderModule(device, lineShaderModule, nullptr);
     }
 
     void createSyncObjects() {
@@ -1611,6 +1755,7 @@ private:
 
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
+        vkDestroyPipeline(device, linePipeline, nullptr);
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
         vkDestroyRenderPass(device, renderPass, nullptr);

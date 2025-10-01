@@ -1,0 +1,49 @@
+#version 450
+#extension GL_EXT_mesh_shader : require
+
+layout(binding = 0) uniform UniformBufferObject {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+} ubo;
+
+struct Vertex {
+    vec3 pos;
+    vec3 color;
+};
+
+const Vertex vertices[6] = Vertex[6](
+    // X axis (red)
+    Vertex(vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0)),
+    Vertex(vec3(2.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0)),
+    // Y axis (green)
+    Vertex(vec3(0.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0)),
+    Vertex(vec3(0.0, 2.0, 0.0), vec3(0.0, 1.0, 0.0)),
+    // Z axis (blue)
+    Vertex(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0)),
+    Vertex(vec3(0.0, 0.0, 2.0), vec3(0.0, 0.0, 1.0))
+);
+
+const uint lineIndices[6] = uint[6](
+    0, 1,  // X axis
+    2, 3,  // Y axis
+    4, 5   // Z axis
+);
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout(lines, max_vertices = 6, max_primitives = 3) out;
+
+layout(location = 0) out vec3 fragColor[];
+
+void main() {
+    SetMeshOutputsEXT(6, 3);
+
+    for (uint i = 0; i < 6; ++i) {
+        gl_MeshVerticesEXT[i].gl_Position = ubo.proj * ubo.view * ubo.model * vec4(vertices[i].pos, 1.0);
+        fragColor[i] = vertices[i].color;
+    }
+
+    for (uint i = 0; i < 3; ++i) {
+        gl_PrimitiveLineIndicesEXT[i] = uvec2(lineIndices[i*2], lineIndices[i*2+1]);
+    }
+}
