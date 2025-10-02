@@ -7,6 +7,11 @@ layout(binding = 0) uniform UniformBufferObject {
     mat4 proj;
 } ubo;
 
+// Block data storage buffer
+layout(binding = 2) readonly buffer BlockData {
+    uint blockTypes[];
+};
+
 // Chunk dimensions
 const uint CHUNK_SIZE = 16;
 const uint BLOCKS_PER_CHUNK = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE; // 4096
@@ -22,6 +27,7 @@ layout(triangles, max_vertices = 240, max_primitives = 120) out;
 
 layout(location = 0) out vec3 fragColor[];
 layout(location = 1) out vec2 fragTexCoord[];
+layout(location = 2) out flat uint fragBlockType[];
 
 // Face vertex offsets for a unit cube
 const vec3 cubeVertices[24] = vec3[24](
@@ -65,44 +71,73 @@ void main() {
     uint workGroupID = gl_WorkGroupID.x;
     uint startBlock = workGroupID * MAX_BLOCKS_PER_INVOCATION;
     uint endBlock = min(startBlock + MAX_BLOCKS_PER_INVOCATION, BLOCKS_PER_CHUNK);
-    uint numBlocks = endBlock - startBlock;
 
-    uint numVertices = numBlocks * 24;
-    uint numPrimitives = numBlocks * 12;
+    // Count non-air blocks first
+    uint solidBlockCount = 0;
+    for (uint i = startBlock; i < endBlock; ++i) {
+        if (blockTypes[i] != 0) { // 0 = AIR
+            solidBlockCount++;
+        }
+    }
+
+    uint numVertices = solidBlockCount * 24;
+    uint numPrimitives = solidBlockCount * 12;
 
     SetMeshOutputsEXT(numVertices, numPrimitives);
 
-    for (uint blockIdx = 0; blockIdx < numBlocks; ++blockIdx) {
-        uint globalBlockIdx = startBlock + blockIdx;
+    uint outputBlockIdx = 0;
+    for (uint i = startBlock; i < endBlock; ++i) {
+        uint blockType = blockTypes[i];
+
+        // Skip air blocks
+        if (blockType == 0) {
+            continue;
+        }
 
         // Calculate block position in chunk (x, y, z)
-        uint x = globalBlockIdx % CHUNK_SIZE;
-        uint y = (globalBlockIdx / CHUNK_SIZE) % CHUNK_SIZE;
-        uint z = globalBlockIdx / (CHUNK_SIZE * CHUNK_SIZE);
+        // Index layout: y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x
+        uint x = i % CHUNK_SIZE;
+        uint z = (i / CHUNK_SIZE) % CHUNK_SIZE;
+        uint y = i / (CHUNK_SIZE * CHUNK_SIZE);
 
         vec3 blockPos = vec3(float(x), float(y), float(z));
 
+        // Color based on block type for debugging
+        vec3 blockColor;
+        if (blockType == 1) blockColor = vec3(0.55, 0.27, 0.07); // DIRT - brown
+        else if (blockType == 2) blockColor = vec3(0.3, 0.8, 0.3); // GRASS - green
+        else if (blockType == 3) blockColor = vec3(0.5, 0.5, 0.5); // STONE - gray
+        else if (blockType == 4) blockColor = vec3(0.6, 0.4, 0.2); // WOOD - brown
+        else if (blockType == 5) blockColor = vec3(0.2, 0.6, 0.2); // LEAVES - dark green
+        else if (blockType == 6) blockColor = vec3(0.9, 0.9, 0.6); // SAND - yellow
+        else if (blockType == 7) blockColor = vec3(0.2, 0.4, 0.8); // WATER - blue
+        else blockColor = vec3(1.0, 0.0, 1.0); // Unknown - magenta
+
         // Generate vertices for this block
         for (uint v = 0; v < 24; ++v) {
-            uint vertexIdx = blockIdx * 24 + v;
+            uint vertexIdx = outputBlockIdx * 24 + v;
             vec3 worldPos = blockPos + cubeVertices[v];
 
             gl_MeshVerticesEXT[vertexIdx].gl_Position = ubo.proj * ubo.view * ubo.model * vec4(worldPos, 1.0);
 
             uint faceIdx = v / 4;
-            fragColor[vertexIdx] = faceColors[faceIdx];
+            // Mix block color with face color for better visibility
+            fragColor[vertexIdx] = blockColor * 0.7 + faceColors[faceIdx] * 0.3;
             fragTexCoord[vertexIdx] = faceTexCoords[v % 4];
+            fragBlockType[vertexIdx] = blockType;
         }
 
         // Generate triangle indices for this block
         for (uint t = 0; t < 12; ++t) {
-            uint primIdx = blockIdx * 12 + t;
-            uint baseVertex = blockIdx * 24;
+            uint primIdx = outputBlockIdx * 12 + t;
+            uint baseVertex = outputBlockIdx * 24;
             gl_PrimitiveTriangleIndicesEXT[primIdx] = uvec3(
                 baseVertex + faceIndices[t * 3 + 0],
                 baseVertex + faceIndices[t * 3 + 1],
                 baseVertex + faceIndices[t * 3 + 2]
             );
         }
+
+        outputBlockIdx++;
     }
 }

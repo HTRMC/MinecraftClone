@@ -22,6 +22,8 @@
 #include <fstream>
 #include <array>
 
+#include "ChunkPalette.h"
+
 const uint32_t WIDTH = 854;
 const uint32_t HEIGHT = 480;
 
@@ -33,7 +35,8 @@ const std::vector<const char*> validationLayers = {
 
 const std::vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    VK_EXT_MESH_SHADER_EXTENSION_NAME
+    VK_EXT_MESH_SHADER_EXTENSION_NAME,
+    VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
 };
 
 #ifdef NDEBUG
@@ -222,6 +225,9 @@ private:
     std::vector<VkDeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMapped;
 
+    VkBuffer chunkStorageBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory chunkStorageBufferMemory = VK_NULL_HANDLE;
+
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> descriptorSets;
 
@@ -230,6 +236,13 @@ private:
     VkImageView textureImageView = VK_NULL_HANDLE;
     VkSampler textureSampler = VK_NULL_HANDLE;
     uint32_t mipLevels = 1;
+
+    // Block texture array
+    VkImage blockTextureArray = VK_NULL_HANDLE;
+    VkDeviceMemory blockTextureArrayMemory = VK_NULL_HANDLE;
+    VkImageView blockTextureArrayView = VK_NULL_HANDLE;
+    uint32_t blockTextureMipLevels = 1;
+    const uint32_t numBlockTextures = 8; // AIR, DIRT, GRASS, STONE, WOOD, LEAVES, SAND, WATER
 
     VkImage depthImage = VK_NULL_HANDLE;
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
@@ -369,10 +382,12 @@ private:
         createCommandPool();
         createTextureImage();
         createTextureImageView();
+        createBlockTextureArray();
         createTextureSampler();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
+        createChunkStorageBuffer();
         createDescriptorPool();
         createDescriptorSets();
         createCommandBuffers();
@@ -567,11 +582,18 @@ private:
         maintenance4Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES;
         maintenance4Features.maintenance4 = VK_TRUE;
 
+        VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures{};
+        indexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+        indexingFeatures.runtimeDescriptorArray = VK_TRUE;
+        indexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
+        indexingFeatures.descriptorBindingVariableDescriptorCount = VK_TRUE;
+        indexingFeatures.pNext = &maintenance4Features;
+
         VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{};
         meshShaderFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
         meshShaderFeatures.meshShader = VK_TRUE;
         meshShaderFeatures.taskShader = VK_FALSE;
-        meshShaderFeatures.pNext = &maintenance4Features;
+        meshShaderFeatures.pNext = &indexingFeatures;
 
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -684,7 +706,14 @@ private:
         samplerLayoutBinding.pImmutableSamplers = nullptr;
         samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        std::array<VkDescriptorSetLayoutBinding, 2> bindings = {uboLayoutBinding, samplerLayoutBinding};
+        VkDescriptorSetLayoutBinding storageBufferBinding{};
+        storageBufferBinding.binding = 2;
+        storageBufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        storageBufferBinding.descriptorCount = 1;
+        storageBufferBinding.stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT;
+        storageBufferBinding.pImmutableSamplers = nullptr;
+
+        std::array<VkDescriptorSetLayoutBinding, 3> bindings = {uboLayoutBinding, samplerLayoutBinding, storageBufferBinding};
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -921,6 +950,50 @@ private:
         }
     }
 
+    void createChunkStorageBuffer() {
+        // Create a test chunk with some blocks
+        ChunkPalette chunk;
+
+        // Fill bottom half with stone, top half with air
+        for (uint32_t y = 0; y < 8; y++) {
+            for (uint32_t x = 0; x < CHUNK_SIZE_PALETTE; x++) {
+                for (uint32_t z = 0; z < CHUNK_SIZE_PALETTE; z++) {
+                    chunk.setBlock(x, y, z, BlockTypePalette::STONE);
+                }
+            }
+        }
+
+        // Add some grass on top
+        for (uint32_t x = 0; x < CHUNK_SIZE_PALETTE; x++) {
+            for (uint32_t z = 0; z < CHUNK_SIZE_PALETTE; z++) {
+                chunk.setBlock(x, 8, z, BlockTypePalette::GRASS);
+            }
+        }
+
+        // Export to flat array for GPU
+        auto chunkData = chunk.exportToArray();
+        VkDeviceSize bufferSize = chunkData.size() * sizeof(uint32_t);
+
+        VkBuffer stagingBuffer;
+        VkDeviceMemory stagingBufferMemory;
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     stagingBuffer, stagingBufferMemory);
+
+        void* data;
+        vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        memcpy(data, chunkData.data(), static_cast<size_t>(bufferSize));
+        vkUnmapMemory(device, stagingBufferMemory);
+
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, chunkStorageBuffer, chunkStorageBufferMemory);
+
+        copyBuffer(stagingBuffer, chunkStorageBuffer, bufferSize);
+
+        vkDestroyBuffer(device, stagingBuffer, nullptr);
+        vkFreeMemory(device, stagingBufferMemory, nullptr);
+    }
+
     void updateUniformBuffer(uint32_t currentImage) {
         UniformBufferObject ubo{};
         ubo.model = glm::mat4(1.0f);  // Identity matrix - no rotation
@@ -937,11 +1010,13 @@ private:
     }
 
     void createDescriptorPool() {
-        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+        std::array<VkDescriptorPoolSize, 3> poolSizes{};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSizes[2].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -975,10 +1050,15 @@ private:
 
             VkDescriptorImageInfo imageInfo{};
             imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageInfo.imageView = textureImageView;
+            imageInfo.imageView = blockTextureArrayView;
             imageInfo.sampler = textureSampler;
 
-            std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+            VkDescriptorBufferInfo storageBufferInfo{};
+            storageBufferInfo.buffer = chunkStorageBuffer;
+            storageBufferInfo.offset = 0;
+            storageBufferInfo.range = VK_WHOLE_SIZE;
+
+            std::array<VkWriteDescriptorSet, 3> descriptorWrites{};
 
             descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             descriptorWrites[0].dstSet = descriptorSets[i];
@@ -995,6 +1075,14 @@ private:
             descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             descriptorWrites[1].descriptorCount = 1;
             descriptorWrites[1].pImageInfo = &imageInfo;
+
+            descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[2].dstSet = descriptorSets[i];
+            descriptorWrites[2].dstBinding = 2;
+            descriptorWrites[2].dstArrayElement = 0;
+            descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            descriptorWrites[2].descriptorCount = 1;
+            descriptorWrites[2].pBufferInfo = &storageBufferInfo;
 
             vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
         }
@@ -1306,6 +1394,319 @@ private:
 
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
+    }
+
+    void createBlockTextureArray() {
+        // Block texture filenames (index matches BlockTypePalette enum)
+        const char* textureFiles[8] = {
+            nullptr,                                                // AIR = 0 (no texture)
+            "assets/minecraft/textures/dirt.png",                   // DIRT = 1
+            "assets/minecraft/textures/grass.png",                  // GRASS = 2
+            "assets/minecraft/textures/stone.png",                  // STONE = 3
+            "assets/minecraft/textures/wood.png",                   // WOOD = 4
+            "assets/minecraft/textures/leaves.png",                 // LEAVES = 5
+            "assets/minecraft/textures/sand.png",                   // SAND = 6
+            nullptr                                                 // WATER = 7 (no texture yet)
+        };
+
+        // Load all textures and find max dimensions
+        struct TextureData {
+            std::vector<unsigned char> pixels;
+            uint32_t width;
+            uint32_t height;
+        };
+
+        std::vector<TextureData> loadedTextures(numBlockTextures);
+        uint32_t maxWidth = 0;
+        uint32_t maxHeight = 0;
+
+        for (uint32_t i = 0; i < numBlockTextures; i++) {
+            if (textureFiles[i] == nullptr) {
+                // Create placeholder magenta texture for missing textures
+                loadedTextures[i].width = 16;
+                loadedTextures[i].height = 16;
+                loadedTextures[i].pixels.resize(16 * 16 * 4);
+                for (size_t j = 0; j < 16 * 16; j++) {
+                    loadedTextures[i].pixels[j * 4 + 0] = 255; // R
+                    loadedTextures[i].pixels[j * 4 + 1] = 0;   // G
+                    loadedTextures[i].pixels[j * 4 + 2] = 255; // B
+                    loadedTextures[i].pixels[j * 4 + 3] = 255; // A
+                }
+            } else {
+                // Load PNG file
+                FILE* png_file = fopen(textureFiles[i], "rb");
+                if (!png_file) {
+                    throw std::runtime_error(std::string("failed to open texture file: ") + textureFiles[i]);
+                }
+
+                fseek(png_file, 0, SEEK_END);
+                long file_size = ftell(png_file);
+                rewind(png_file);
+
+                std::vector<unsigned char> png_buf(file_size);
+                fread(png_buf.data(), file_size, 1, png_file);
+                fclose(png_file);
+
+                spng_ctx* ctx = spng_ctx_new(0);
+                if (!ctx) {
+                    throw std::runtime_error("failed to create spng context!");
+                }
+
+                int ret = spng_set_png_buffer(ctx, png_buf.data(), png_buf.size());
+                if (ret) {
+                    spng_ctx_free(ctx);
+                    throw std::runtime_error("failed to set PNG buffer!");
+                }
+
+                struct spng_ihdr ihdr;
+                ret = spng_get_ihdr(ctx, &ihdr);
+                if (ret) {
+                    spng_ctx_free(ctx);
+                    throw std::runtime_error("failed to get PNG header!");
+                }
+
+                loadedTextures[i].width = ihdr.width;
+                loadedTextures[i].height = ihdr.height;
+
+                size_t out_size;
+                ret = spng_decoded_image_size(ctx, SPNG_FMT_RGBA8, &out_size);
+                if (ret) {
+                    spng_ctx_free(ctx);
+                    throw std::runtime_error("failed to get decoded image size!");
+                }
+
+                loadedTextures[i].pixels.resize(out_size);
+                ret = spng_decode_image(ctx, loadedTextures[i].pixels.data(), out_size, SPNG_FMT_RGBA8, SPNG_DECODE_TRNS);
+                if (ret) {
+                    spng_ctx_free(ctx);
+                    throw std::runtime_error("failed to decode PNG image!");
+                }
+
+                spng_ctx_free(ctx);
+            }
+
+            maxWidth = std::max(maxWidth, loadedTextures[i].width);
+            maxHeight = std::max(maxHeight, loadedTextures[i].height);
+        }
+
+        blockTextureMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(maxWidth, maxHeight)))) + 1;
+
+        // Create image with array layers
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width = maxWidth;
+        imageInfo.extent.height = maxHeight;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = blockTextureMipLevels;
+        imageInfo.arrayLayers = numBlockTextures;
+        imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (vkCreateImage(device, &imageInfo, nullptr, &blockTextureArray) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create block texture array!");
+        }
+
+        VkMemoryRequirements memRequirements;
+        vkGetImageMemoryRequirements(device, blockTextureArray, &memRequirements);
+
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &blockTextureArrayMemory) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate block texture array memory!");
+        }
+
+        vkBindImageMemory(device, blockTextureArray, blockTextureArrayMemory, 0);
+
+        // Transition entire array to transfer dst
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = blockTextureArray;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = blockTextureMipLevels;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = numBlockTextures;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            0, nullptr,
+            0, nullptr,
+            1, &barrier);
+
+        endSingleTimeCommands(commandBuffer);
+
+        // Upload each texture to its array layer
+        for (uint32_t i = 0; i < numBlockTextures; i++) {
+            VkDeviceSize imageSize = maxWidth * maxHeight * 4;
+
+            VkBuffer stagingBuffer;
+            VkDeviceMemory stagingBufferMemory;
+            createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                stagingBuffer, stagingBufferMemory);
+
+            void* data;
+            vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+
+            // Copy texture data, potentially resizing if needed
+            if (loadedTextures[i].width == maxWidth && loadedTextures[i].height == maxHeight) {
+                memcpy(data, loadedTextures[i].pixels.data(), static_cast<size_t>(imageSize));
+            } else {
+                // Simple nearest-neighbor upscaling for mismatched sizes
+                unsigned char* dst = static_cast<unsigned char*>(data);
+                for (uint32_t y = 0; y < maxHeight; y++) {
+                    for (uint32_t x = 0; x < maxWidth; x++) {
+                        uint32_t srcX = (x * loadedTextures[i].width) / maxWidth;
+                        uint32_t srcY = (y * loadedTextures[i].height) / maxHeight;
+                        uint32_t srcIdx = (srcY * loadedTextures[i].width + srcX) * 4;
+                        uint32_t dstIdx = (y * maxWidth + x) * 4;
+                        dst[dstIdx + 0] = loadedTextures[i].pixels[srcIdx + 0];
+                        dst[dstIdx + 1] = loadedTextures[i].pixels[srcIdx + 1];
+                        dst[dstIdx + 2] = loadedTextures[i].pixels[srcIdx + 2];
+                        dst[dstIdx + 3] = loadedTextures[i].pixels[srcIdx + 3];
+                    }
+                }
+            }
+
+            vkUnmapMemory(device, stagingBufferMemory);
+
+            // Copy buffer to image layer
+            commandBuffer = beginSingleTimeCommands();
+
+            VkBufferImageCopy region{};
+            region.bufferOffset = 0;
+            region.bufferRowLength = 0;
+            region.bufferImageHeight = 0;
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel = 0;
+            region.imageSubresource.baseArrayLayer = i;
+            region.imageSubresource.layerCount = 1;
+            region.imageOffset = {0, 0, 0};
+            region.imageExtent = {maxWidth, maxHeight, 1};
+
+            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, blockTextureArray,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+            endSingleTimeCommands(commandBuffer);
+
+            vkDestroyBuffer(device, stagingBuffer, nullptr);
+            vkFreeMemory(device, stagingBufferMemory, nullptr);
+        }
+
+        // Generate mipmaps for all layers
+        commandBuffer = beginSingleTimeCommands();
+
+        for (uint32_t layer = 0; layer < numBlockTextures; layer++) {
+            int32_t mipWidth = maxWidth;
+            int32_t mipHeight = maxHeight;
+
+            for (uint32_t i = 1; i < blockTextureMipLevels; i++) {
+                VkImageMemoryBarrier barrier{};
+                barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                barrier.image = blockTextureArray;
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                barrier.subresourceRange.baseArrayLayer = layer;
+                barrier.subresourceRange.layerCount = 1;
+                barrier.subresourceRange.levelCount = 1;
+
+                barrier.subresourceRange.baseMipLevel = i - 1;
+                barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+                vkCmdPipelineBarrier(commandBuffer,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                    0, nullptr, 0, nullptr, 1, &barrier);
+
+                VkImageBlit blit{};
+                blit.srcOffsets[0] = {0, 0, 0};
+                blit.srcOffsets[1] = {mipWidth, mipHeight, 1};
+                blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.srcSubresource.mipLevel = i - 1;
+                blit.srcSubresource.baseArrayLayer = layer;
+                blit.srcSubresource.layerCount = 1;
+                blit.dstOffsets[0] = {0, 0, 0};
+                blit.dstOffsets[1] = {mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1};
+                blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.dstSubresource.mipLevel = i;
+                blit.dstSubresource.baseArrayLayer = layer;
+                blit.dstSubresource.layerCount = 1;
+
+                vkCmdBlitImage(commandBuffer,
+                    blockTextureArray, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    blockTextureArray, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1, &blit, VK_FILTER_LINEAR);
+
+                barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+                vkCmdPipelineBarrier(commandBuffer,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                    0, nullptr, 0, nullptr, 1, &barrier);
+
+                if (mipWidth > 1) mipWidth /= 2;
+                if (mipHeight > 1) mipHeight /= 2;
+            }
+
+            // Transition last mip level
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.image = blockTextureArray;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.baseMipLevel = blockTextureMipLevels - 1;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.baseArrayLayer = layer;
+            barrier.subresourceRange.layerCount = 1;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            vkCmdPipelineBarrier(commandBuffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                0, nullptr, 0, nullptr, 1, &barrier);
+        }
+
+        endSingleTimeCommands(commandBuffer);
+
+        // Create image view for texture array
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = blockTextureArray;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        viewInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = blockTextureMipLevels;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = numBlockTextures;
+
+        if (vkCreateImageView(device, &viewInfo, nullptr, &blockTextureArrayView) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create block texture array view!");
+        }
     }
 
     void createTextureImageView() {
@@ -1808,6 +2209,10 @@ private:
         vkDestroyImage(device, textureImage, nullptr);
         vkFreeMemory(device, textureImageMemory, nullptr);
 
+        vkDestroyImageView(device, blockTextureArrayView, nullptr);
+        vkDestroyImage(device, blockTextureArray, nullptr);
+        vkFreeMemory(device, blockTextureArrayMemory, nullptr);
+
         vkDestroyBuffer(device, indexBuffer, nullptr);
         vkFreeMemory(device, indexBufferMemory, nullptr);
 
@@ -1818,6 +2223,9 @@ private:
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);
             vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
         }
+
+        vkDestroyBuffer(device, chunkStorageBuffer, nullptr);
+        vkFreeMemory(device, chunkStorageBufferMemory, nullptr);
 
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
