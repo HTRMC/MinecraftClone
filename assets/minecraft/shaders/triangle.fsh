@@ -9,9 +9,5 @@ layout(location = 2) in flat uint fragBlockType;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    // Sample from texture array using block type as layer index
-    vec4 texColor = texture(texSampler, vec3(fragTexCoord, float(fragBlockType)));
-
-    // Mix with face color for better visibility
-    outColor = texColor * vec4(fragColor, 1.0);
+    outColor = texture(texSampler, vec3(fragTexCoord, float(fragBlockType)));
 }

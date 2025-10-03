@@ -13,10 +13,10 @@ constexpr uint32_t BLOCKS_PER_CHUNK_PALETTE = CHUNK_SIZE_PALETTE * CHUNK_SIZE_PA
 enum class BlockTypePalette : uint16_t {
     AIR = 0,
     DIRT = 1,
-    GRASS = 2,
+    GRASS_BLOCK = 2,
     STONE = 3,
-    WOOD = 4,
-    LEAVES = 5,
+    OAK_LOG = 4,
+    OAK_LEAVES = 5,
     SAND = 6,
     WATER = 7,
     // Can support up to 65536 block types

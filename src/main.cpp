@@ -966,7 +966,7 @@ private:
         // Add some grass on top
         for (uint32_t x = 0; x < CHUNK_SIZE_PALETTE; x++) {
             for (uint32_t z = 0; z < CHUNK_SIZE_PALETTE; z++) {
-                chunk.setBlock(x, 8, z, BlockTypePalette::GRASS);
+                chunk.setBlock(x, 8, z, BlockTypePalette::GRASS_BLOCK);
             }
         }
 
@@ -1401,10 +1401,10 @@ private:
         const char* textureFiles[8] = {
             nullptr,                                                // AIR = 0 (no texture)
             "assets/minecraft/textures/dirt.png",                   // DIRT = 1
-            "assets/minecraft/textures/grass.png",                  // GRASS = 2
+            "assets/minecraft/textures/grass_block.png",            // GRASS_BLOCK = 2
             "assets/minecraft/textures/stone.png",                  // STONE = 3
-            "assets/minecraft/textures/wood.png",                   // WOOD = 4
-            "assets/minecraft/textures/leaves.png",                 // LEAVES = 5
+            "assets/minecraft/textures/oak_log.png",                // OAK_LOG = 4
+            "assets/minecraft/textures/oak_leaves.png",             // OAK_LEAVES = 5
             "assets/minecraft/textures/sand.png",                   // SAND = 6
             nullptr                                                 // WATER = 7 (no texture yet)
         };
