@@ -23,6 +23,7 @@
 #include <array>
 
 #include "ChunkPalette.h"
+#include "GameRenderer.hpp"
 
 const uint32_t WIDTH = 854;
 const uint32_t HEIGHT = 480;
@@ -168,6 +169,8 @@ public:
     }
 
 private:
+    GameRenderer gameRenderer;
+
     GLFWwindow* window = nullptr;
 
     // Camera quaternion rotation
@@ -180,7 +183,7 @@ private:
     // Camera position - positioned to view the 16x16x16 chunk
     glm::vec3 cameraPos = glm::vec3(24.0f, 24.0f, 24.0f);
     glm::vec3 worldUp = glm::vec3(0.0f, -1.0f, 0.0f);  // Vulkan Y- is up
-    float movementSpeed = 10.0f;
+    float movementSpeed = 100.0f;
 
     double lastMouseX = WIDTH / 2.0;
     double lastMouseY = HEIGHT / 2.0;
@@ -1003,7 +1006,7 @@ private:
         glm::vec3 up = cameraRotation * glm::vec3(0.0f, 1.0f, 0.0f);
         ubo.view = glm::lookAt(cameraPos, cameraPos + front, up);
 
-        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 100.0f);
+        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.05f, gameRenderer.getFarPlaneDistance());
         ubo.proj[1][1] *= -1;
 
         memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
@@ -2096,6 +2099,8 @@ private:
     }
 
     void drawFrame() {
+        gameRenderer.renderWorld();
+
         vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
         uint32_t imageIndex;
