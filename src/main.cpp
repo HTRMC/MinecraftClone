@@ -23,6 +23,8 @@
 #include <array>
 
 #include "ChunkPalette.h"
+#include "client/render/GameRenderer.hpp"
+#include "client/render/Camera.hpp"
 
 const uint32_t WIDTH = 854;
 const uint32_t HEIGHT = 480;
@@ -168,24 +170,14 @@ public:
     }
 
 private:
+    GameRenderer gameRenderer;
+    Camera camera;
+
     GLFWwindow* window = nullptr;
-
-    // Camera quaternion rotation
-    glm::quat cameraRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-
-    // Initial yaw and pitch to look at origin from camera position (2,2,2)
-    float yaw = 45.0f;
-    float pitch = 35.0f;
-
-    // Camera position - positioned to view the 16x16x16 chunk
-    glm::vec3 cameraPos = glm::vec3(24.0f, 24.0f, 24.0f);
-    glm::vec3 worldUp = glm::vec3(0.0f, -1.0f, 0.0f);  // Vulkan Y- is up
-    float movementSpeed = 10.0f;
 
     double lastMouseX = WIDTH / 2.0;
     double lastMouseY = HEIGHT / 2.0;
     bool firstMouse = true;
-    float mouseSensitivity = 1.0f;
 
     // Timing for smooth movement
     float deltaTime = 0.0f;
@@ -294,78 +286,21 @@ private:
         lastMouseX = xpos;
         lastMouseY = ypos;
 
-        // Apply mouse sensitivity (Minecraft-style)
-        double sensitivity = mouseSensitivity * 0.6 + 0.2;
-        double multiplier = sensitivity * sensitivity * sensitivity * 8.0;
-
-        xOffset *= multiplier * 0.15;
-        yOffset *= multiplier * 0.15;
-
-        yaw -= static_cast<float>(xOffset);
-        pitch += static_cast<float>(yOffset);
-
-        // Constrain pitch
-        pitch = glm::clamp(pitch, -90.0f, 90.0f);
-
-        // Wrap yaw to [-180, 180]
-        yaw = wrapDegrees(yaw);
-
-        // Update camera quaternion using yaw and pitch
-        updateCameraRotation();
-    }
-
-    float wrapDegrees(float degrees) {
-        float f = fmod(degrees, 360.0f);
-        if (f >= 180.0f) f -= 360.0f;
-        if (f < -180.0f) f += 360.0f;
-        return f;
-    }
-
-    void updateCameraRotation() {
-        // Convert yaw and pitch to quaternion using the same approach as Camera
-        float yawRad = glm::radians(yaw);
-        float pitchRad = glm::radians(pitch);
-
-        cameraRotation = glm::angleAxis(yawRad, glm::vec3(0.0f, 1.0f, 0.0f)) *
-                         glm::angleAxis(-pitchRad, glm::vec3(1.0f, 0.0f, 0.0f));
+        camera.processMouseMovement(xOffset, yOffset);
     }
 
     void processKeyboard(float deltaTime) {
-        float velocity = movementSpeed * deltaTime;
+        bool forward = glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS;
+        bool backward = glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS;
+        bool left = glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
+        bool right = glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
+        bool up = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+        bool down = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
 
-        // Get front and right vectors from camera rotation
-        glm::vec3 front = cameraRotation * glm::vec3(0.0f, 0.0f, -1.0f);
-        glm::vec3 right = cameraRotation * glm::vec3(-1.0f, 0.0f, 0.0f);
-
-        // WASD movement (horizontal plane only, like in the example)
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-            glm::vec3 horizontalFront = glm::normalize(glm::vec3(front.x, 0.0f, front.z));
-            cameraPos += horizontalFront * velocity;
-        }
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-            glm::vec3 horizontalFront = glm::normalize(glm::vec3(front.x, 0.0f, front.z));
-            cameraPos -= horizontalFront * velocity;
-        }
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-            cameraPos += right * velocity;
-        }
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-            cameraPos -= right * velocity;
-        }
-
-        // Space and Shift for vertical movement
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-            cameraPos -= worldUp * velocity;  // worldUp is (0, -1, 0), so subtract to go up
-        }
-        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-            cameraPos += worldUp * velocity;  // Add to go down (since worldUp is negative Y)
-        }
+        camera.processKeyboardMovement(forward, backward, left, right, up, down, deltaTime);
     }
 
     void initVulkan() {
-        // Initialize camera rotation to look at origin
-        updateCameraRotation();
-
         createInstance();
         setupDebugMessenger();
         createSurface();
@@ -997,13 +932,8 @@ private:
     void updateUniformBuffer(uint32_t currentImage) {
         UniformBufferObject ubo{};
         ubo.model = glm::mat4(1.0f);  // Identity matrix - no rotation
-
-        // Use dynamic camera position and quaternion to compute view matrix
-        glm::vec3 front = cameraRotation * glm::vec3(0.0f, 0.0f, -1.0f);
-        glm::vec3 up = cameraRotation * glm::vec3(0.0f, 1.0f, 0.0f);
-        ubo.view = glm::lookAt(cameraPos, cameraPos + front, up);
-
-        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 100.0f);
+        ubo.view = camera.getViewMatrix();
+        ubo.proj = glm::perspective(glm::radians(gameRenderer.getFov()), swapChainExtent.width / (float) swapChainExtent.height, 0.05f, gameRenderer.getFarPlaneDistance());
         ubo.proj[1][1] *= -1;
 
         memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
@@ -2096,6 +2026,8 @@ private:
     }
 
     void drawFrame() {
+        gameRenderer.renderWorld();
+
         vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
         uint32_t imageIndex;
