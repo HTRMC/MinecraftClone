@@ -23,7 +23,7 @@
 #include <array>
 
 #include "ChunkPalette.h"
-#include "GameRenderer.hpp"
+#include "client/render/GameRenderer.hpp"
 #include "client/render/Camera.hpp"
 
 const uint32_t WIDTH = 854;

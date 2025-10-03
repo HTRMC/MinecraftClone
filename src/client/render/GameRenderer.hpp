@@ -1,6 +1,6 @@
 #pragma once
 
-#include "GameOptions.hpp"
+#include "../option/GameOptions.hpp"
 
 class GameRenderer {
 
