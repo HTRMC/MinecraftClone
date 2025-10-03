@@ -10,5 +10,6 @@ private:
 
 public:
     float getFarPlaneDistance();
+    float getFov();
     void renderWorld();
 };
